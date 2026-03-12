@@ -1,9 +1,75 @@
-"AJP":
-  url: https://aapt.scitation.org/journal/ajp
-  color: "#00369f"
+"CVPR":
+  url: https://cvpr.thecvf.com/
+  color: "#d63384"
 
-"PhysRev":
-  url: https://journals.aps.org/
+"NeurIPS":
+  url: https://neurips.cc/
+  color: "#6f42c1"
 
-"Vision":
-  color: "#009f36"
+"MICCAI":
+  url: https://www.miccai.org/
+  color: "#0d6efd"
+
+"MIDL":
+  url: https://midl.io/
+  color: "#198754"
+
+"IPMI":
+  url: https://ipmi2025.org/
+  color: "#0dcaf0"
+
+"SPIE":
+  url: https://spie.org/conferences-and-exhibitions/medical-imaging
+  color: "#fd7e14"
+
+"MedIA":
+  url: https://www.sciencedirect.com/journal/medical-image-analysis
+  color: "#dc3545"
+
+"Radiology":
+  url: https://pubs.rsna.org/journal/radiology
+  color: "#20c997"
+
+"Med. Phys.":
+  url: https://aapm.onlinelibrary.wiley.com/journal/24734209
+  color: "#6610f2"
+
+"ISBI":
+  url: https://biomedicalimaging.org/
+  color: "#0d6efd"
+
+"BIBM":
+  url: https://ieeexplore.ieee.org/xpl/conhome/1803739/all-proceedings
+  color: "#ffc107"
+
+"PRCV":
+  url: https://prcv.org/
+  color: "#e35d6a"
+
+"MTA":
+  url: https://www.springer.com/journal/11042
+  color: "#6c757d"
+
+"JMI":
+  url: https://www.spiedigitallibrary.org/journals/journal-of-medical-imaging
+  color: "#fd7e14"
+
+"Tomography":
+  url: https://www.mdpi.com/journal/tomography
+  color: "#198754"
+
+"MTSAIL":
+  url: https://www.miccai.org/
+  color: "#0d6efd"
+
+"OMIA":
+  url: https://www.miccai.org/
+  color: "#0d6efd"
+
+"iMIMIC":
+  url: https://www.miccai.org/
+  color: "#0d6efd"
+
+"arXiv":
+  url: https://arxiv.org/
+  color: "#6c757d"
