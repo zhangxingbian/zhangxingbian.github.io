@@ -1,0 +1,155 @@
+%-------------------------------------------------------------------------------
+%	SECTION TITLE
+%-------------------------------------------------------------------------------
+\cvsection{Work Experience}
+
+\begin{cventries}
+\cventry
+    {Medical Imaging Research Internship, Supervisor: Sasa Grbic}
+    {{Siemens Healthineers}}
+    {Princeton, NJ, USA}
+    {Jun. 2025 - Dec. 2025}
+    {
+        \begin{cvitems}
+            \item{Scaled abnormality \emp{detection foundation models} to novel chest X-ray findings with minimal annotations using active learning.}
+\item{Designed an active learning strategy achieving \emp{99\%} of upper-bound (full-data) classification accuracy (AUROC) and \emp{93\%} detection performance (AP)  with only \emp{10\%} of bounding-box annotations.}
+\item{Engineered a \emp{distributed} active learning system, reducing iteration cycles and enabling practical deployment in real-world development.}
+        \end{cvitems}
+    }
+\end{cventries}
+
+\begin{cventries}
+\cventry
+    {Data Science Internship, Mentor: Dr. Alan Priester, Joshua Shubert}
+    { \href{https://avendahealth.com/}{Avenda Health}}
+    {Culver City, CA, USA}
+    {Jun. 2024 - Aug. 2024}
+    {
+        \begin{cvitems}
+            \item{Developed a deep learning-based  \emp{MRI/ultrasound fusion} technique incorporating both rigid and deformable registration, specifically facilitating \emp{prostate cancer biopsy procedure}. The model is implemented in Pytorch, and trained and deployed with \emp{AWS Sagemaker}.}
+            \item{Achieved a mean registration error of 3.0mm (Q1: 2.5mm, Q3: 3.9mm) for biopsy cores across 2,800 patients from three sites, processing < 1s per case on CPU and real-time on GPU.}
+            \item{
+            \emp{Streamlined the clinical workflow} of the \href{https://koelis.com/}{Koelis Biopsy System} with the developed fusion technique by eliminating cumbersome data exporting and the need for third-party software in the biopsy fusion process, enhancing efficiency and reducing clinician workload.
+            }
+        \end{cvitems}
+    }
+\end{cventries}
+
+
+\begin{cventries}
+ \cventry
+    {Research Assistant, Advisor: Prof. Nicholas S. Burris} % Job title
+    {Dept. of Radiology, University of Michigan } % Organization
+    {Ann Arbor, MI, USA} % Location
+    {Mar. 2020 - Sep. 2021} % Date(s)
+    {
+      \begin{cvitems} % Description(s) of tasks/responsibilities
+	\item{Developed a technique to decouple \emp{thoracic aortic aneurysm (TAA)} growth into longitudinal and radial components, validated on both digital phantoms and real-patient \emp{CT} datasets, to support radiologist diagnosis.}
+	\item{Designed a deep learning method (LitCall) for \emp{aortic landmark detection} by incorporating geometric priors, achieving superior localization accuracy over generic U-Net architectures on 207 CT angiograms with minimal model size increase.}
+	\item{Demonstrated LitCall clinical use with automating aortic \emp{centerline generation} and anatomic sub-region delineation, streamlining processes for aortic disease analysis and assessment of aortic size and growth.}
+	\item{Validated the in-house pipeline of measuring TAA growth (Vascular Deformation Mapping, VDM) by creating 76 synthetic TAA growth phantoms via \textit{3D Blender} (3D modeling software), showing that VDM's precision significantly \emp{outperforms traditional diameter assessments by human raters}.}
+       \end{cvitems}
+    }
+    
+\end{cventries}
+
+%-------------------------------------------------------------------------------
+%	SECTION TITLE
+%-------------------------------------------------------------------------------
+\cvsection{Research Experience}
+    \begin{cventries}
+    \cventry
+    {Graduate Research Assistant, Advisor: Prof. Jerry L. Prince} % Job title
+    {Dept. of  ECE, Johns Hopkins University} % Organization
+    {Baltimore, USA} % Location
+    {Sep. 2021 - Present} % Date(s)
+    {
+    	\begin{cvitems} % Description(s) of tasks/responsibilities
+    		\item{Developed an efficient algorithm for extracting connectivity information from \emp{diffusion-weighted MRIs}, achieving a significant speedup of 30 to 120 times over traditional methods without sacrificing quality, validated on the Human Connectome Project dataset. (SPIE-MI Best Paper Award)}
+    		%\item {Introduced a novel \emp{visual representation}, termed ``pie-glyph," for neuroimaging connectivity data, enhancing the \emp{interpretability} of intricate neural pathways in subcortical structures for neuroscientific research.}
+		%\item {Proposed a deep learning registration-based algorithm to correct the \emp{EPI distortion} of diffusion-weighted MRI acquired with only a single phase-encoding direction and achieves better performance than existing registration-based distortion correction approaches.}
+		\item{Developed DRIMET, a deep learning image registration model for \emp{3D motion estimation} in \emp{tagged MRI}, introducing sinusoidal phase transformation and an incompressibility constraint to make ease of phase interpolation and estimate \textit{biologically-plausible} deformation estimation.}
+		\item{Validated DRIMET on tongue tagged MRI datasets of healthy individuals and glossectomy patients, demonstrating its utility in assessing speech dynamics \emp{post-oral cancer treatments}.}
+		\item{Extended DRIMET for Lagrangian motion estimation, leveraging Lie algebra and Lie group principles to use temporal information to improve tracking amid \textit{large motions} and \textit{repetitive patterns} in tagged MRI.}
+        %\item{Alerted the pitfalls of popularly-used deep learning-based registration methods in \emp{strain analysis} from tagged MRI. (SPIE-MI Best Paper Award)}
+        \item{Developed a novel \emp{physics-constrained generative model~(DDPM)}  to address the \emp{inverse problem} of disentangling tagged MRI into cine MRI and tag patterns while simultaneously estimating motion. This approach achieves \emp{unprecedented} accuracy in motion tracking.}
+        \item{Awarded \emp{JHU Discovery Grant} (\$150K). Drafted a \emp{NIH R21} grant application. Submitted invention disclosure and patent application.}
+        % a US patent application
+		%\item Demonstrated MomentaMorph framework excelled in precision motion field estimation on both synthetic and real tagged MRI data, indicating its promising applicability to a spectrum of dynamic imaging modalities, e.g., cardiac imaging and pulmonary 4DCT scans.
+    		%\item{Proposed a novel deep learning-based approach on \emp{motion estimation} of organs (such as cardiac, brain, tongue) using tagged-MRI images.}
+    	\end{cvitems}
+    }
+
+
+    \cventry
+    {Graduate Research Assistant, Advisor: Prof. Andrew Owens} % Job title
+    {Dept. of EECS, University of Michigan} % Organization
+    {Ann Arbor, MI, USA} % Location
+    {Sep. 2020 - May 2021} % Date(s)
+    {
+      \begin{cvitems} % Description(s) of tasks/responsibilities
+      \item{Developed a unified self-supervised learning model for \emp{optical flow}, \emp{keypoint tracking}, and \emp{video object segmentation} by innovating a multiscale contrastive random walk approach, integrating hierarchy into pixel-level space-time graphs.}
+      \item{Demonstrated that the model is on par with state-of-the-art \emp{unsupervised} methods for optical flow and video object segmentation, and surpasses current self-supervised models in pose tracking through extensive benchmarking.}
+      \item{Proposed a new loss function that eliminates the need for hand-crafted features and utilized \emp{cycle-consistency} as an additional learning signal, which, combined with multi-frame training, enhanced the performance of two-frame optical flow estimation.}
+       \end{cvitems}
+    }
+    
+%     \cventry
+%    {Research Internship, Advisor: Prof. L. Jay Guo} % Job title
+%    {Dept. of EECS, University of Michigan} % Organization
+%    {Ann Arbor, USA} % Location
+%    {Feb. 2020 - Jul. 2020} % Date(s)
+%    {
+%      \begin{cvitems} % Description(s) of tasks/responsibilities
+%      \item {Applied domain adaptation methods to improve the accuracy of COVID-19 recognition using CT and X-ray images.}
+%      \item {Applied machine learning methods, e.g. Linear Regression, LSTM,  to determine the risk of exposure to COVID-19.}
+%      \item {Proposed a novel feature disentangling method for unsupervised domain adaptation.}
+%       \end{cvitems}
+%    }
+
+
+% \vspace{-0.05cm}
+% \cventry
+%      {Undergrad Research Assistant, Supervisor: Prof. Siyu Xia} % Job title
+%     {School of Automation, Southeast University} % Organization
+%     {Nanjing, China} % Location
+%     {Oct. 2018 - Aug. 2019} % Date(s)
+%     {
+%       \begin{cvitems} % Description(s) of tasks/responsibilities
+% 	%\item {Optimized a Linux server and configured a GPU-accelerated computing environment to facilitate efficient software execution, while also playing a key role in debugging, testing, and documentation efforts.}
+% 	\item {Developed a novel \emp{weakly supervised segmentation} framework for vitiligo lesion in \emp{skin image}, leveraging image-level labels to generate precise saliency maps via saliency propagation on \emp{superpixel}-based graphs.}
+% 	\item {{Curated} Vit2019, a pixel-wisely annotated vitiligo {image dataset}, unprecedented in scale as of 2018 with more than 2,000 images.}
+% 	\item {Demonstrated robustness against indistinct lesion borders and inconsistent illumination in user-captured photos taken with phone cameras.}
+%       \end{cvitems}
+%     }
+
+%  \cventry
+%    {Research Team Leader, Supervisor: Prof. Siyu Xia} % Job title
+%    {Undergraduate Research, Pattern Recognition and Intelligent System Lab} % Organization
+%    {Nanjing, China} % Location
+%    {Apr. 2016 - May. 2018} % Date(s)
+%    {
+%      \begin{cvitems} % Description(s) of tasks/responsibilities
+%        \item {Managed a research team of 5 to successfully finish the project ahead of schedule and achieved top 5\% rank in project defense and evaluation.}
+%        \item {Researched on \emp{video synopsis} technology for \emp{surveillance video}. (Mainly focused on the keyframes extraction and dynamic synopsis methods.}
+%        %\item {Implemented Graph-cut algorithm for optimization and classic clustering/ motion-based methods for \emp{keyframes extraction} in C++ \& Python.}
+%        %\item {Proposed an efficient method based on motion-volume to extract the keyframes, performance of which is comparable to the SOTA methods.}
+%      \end{cvitems}
+%    }
+
+%---------------------------------------------------------
+%\vspace{-0.15cm}
+%  \cventry
+%    {Research Team Member, Supervisor: Prof. Kun Qian} % Job title
+%    {Undergraduate Research, Robotics Lab} % Organization
+%    {Nanjing, China} % Location
+%    {Apr. 2017 - May. 2018} % Date(s)
+%    {
+%      \begin{cvitems} % Description(s) of tasks/responsibilities
+%        \item {Researched on the classic \emp{object tracking} algorithms, and implemented a SOTA algorithm -- Gracker in C++ to track planar object.}
+%        \item {Integrated Gracker into the framework of \emp{AR-Toolkit for 3D object registration and rendering}, and we beat the AR-Toolkit's own performance.}
+%        \end{cvitems}
+%    }
+%---------------------------------------------------------
+\end{cventries}
+

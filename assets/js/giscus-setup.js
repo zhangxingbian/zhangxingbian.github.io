@@ -18,7 +18,7 @@ function determineGiscusTheme() {
 
   let giscusAttributes = {
     src: "https://giscus.app/client.js",
-    "data-repo": "jasonbian97/zhangxing.github.io",
+    "data-repo": "zhangxingbian/zhangxingbian.github.io",
     "data-repo-id": "",
     "data-category": "Comments",
     "data-category-id": "",
