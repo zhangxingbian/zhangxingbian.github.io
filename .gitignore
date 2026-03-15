@@ -15,3 +15,16 @@ node_modules/
 vendor
 
 google-site/
+
+# Playwright / debugging screenshots
+.playwright-mcp/
+visitor-map-verification.png
+visitor-map-bottom.png
+screenshot-full-page.png
+profile-pic-closeup.png
+profile-pic-fixed.png
+profile-shrunk.png
+publications-width-fix.png
+section-spacing.png
+font-size-increase.png
+typography-update.png
