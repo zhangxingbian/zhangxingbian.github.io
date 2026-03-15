@@ -1,6 +1,6 @@
 ---
 layout: page
-title: photography
+title: Photography
 permalink: /photography/
 description: Travel and landscape photography
 nav: true
