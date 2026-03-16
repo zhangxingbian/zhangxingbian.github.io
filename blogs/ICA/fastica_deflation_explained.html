@@ -1,0 +1,338 @@
+<style>
+.metric-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.metric-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 14px}
+.metric-label{font-size:12px;color:var(--color-text-secondary)}
+.metric-val{font-size:15px;font-weight:500;color:var(--color-text-primary);margin-top:2px}
+.formula-box{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 16px;font-family:var(--font-mono);font-size:13px;color:var(--color-text-primary);line-height:1.8;margin:8px 0}
+.step-btn{font-size:12px;padding:5px 12px;margin-right:6px;margin-bottom:6px}
+.step-btn.active{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+</style>
+<div style="padding:0.5rem 0">
+<div id="nav"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0">
+  <div>
+    <canvas id="cvL" width="340" height="340" style="width:100%;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas>
+    <div id="labL" style="text-align:center;font-size:12px;color:var(--color-text-secondary);margin-top:4px"></div>
+  </div>
+  <div>
+    <canvas id="cvR" width="340" height="340" style="width:100%;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas>
+    <div id="labR" style="text-align:center;font-size:12px;color:var(--color-text-secondary);margin-top:4px"></div>
+  </div>
+</div>
+<div id="formula" class="formula-box" style="display:none"></div>
+<div class="metric-row" id="mets" style="display:none">
+  <div class="metric-card"><div class="metric-label">w\u2081 \u00b7 w\u2082 in whitened space</div><div class="metric-val" id="m-dot-w">--</div></div>
+  <div class="metric-card"><div class="metric-label">w\u2081 \u00b7 w\u2082 in original space</div><div class="metric-val" id="m-dot-o">--</div></div>
+</div>
+<div id="status" style="font-size:13px;color:var(--color-text-secondary);min-height:20px;margin:8px 0"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+  <button id="btn-next" onclick="next()">Next step</button>
+  <button onclick="autoPlay()">Auto-play</button>
+  <button onclick="restart()">Reset</button>
+</div>
+</div>
+<script>
+const dk=matchMedia('(prefers-color-scheme:dark)').matches;
+const N=600;
+let s1=[],s2=[],cx=[],cy=[],zx=[],zy=[];
+let A,V00,V01,V10,V11;
+let w1=[],w2=[],w1hist=[],w2hist=[];
+let w1done=false,w2done=false;
+let step=0,animId=null;
+const stepsInfo=[
+  {label:'Whitened data',desc:'Starting point: whitened observations z with unit covariance. The two true source directions are hidden as orthogonal axes in this space.'},
+  {label:'Find w\u2081',desc:'Run FastICA fixed-point iteration to find the first unmixing direction w\u2081 (maximizes non-Gaussianity of w\u2081\u1d40z).'},
+  {label:'Find w\u2082 (naive)',desc:'Initialize a random w\u2082 and run the same fixed-point iteration. Problem: it converges toward the SAME direction as w\u2081!'},
+  {label:'Gram-Schmidt fix',desc:'After each fixed-point update of w\u2082, subtract its projection onto w\u2081: w\u2082 \u2190 w\u2082 \u2212 (w\u2082\u1d40w\u2081)w\u2081, then normalize. This forces w\u2082 \u22a5 w\u2081 in whitened space.'},
+  {label:'Both found',desc:'Both directions recovered. They ARE orthogonal in whitened space (by construction). But in the original observation space, the full unmixing vectors W = W\u0303\u00b7V are generally NOT orthogonal.'},
+];
+
+function init(){
+  s1=[];s2=[];
+  for(let i=0;i<N;i++){s1.push(Math.random()*2-1);s2.push(Math.random()*2-1);}
+  A=[[0.9,0.5],[0.35,0.85]];
+  let x1=[],x2=[];
+  for(let i=0;i<N;i++){x1.push(A[0][0]*s1[i]+A[0][1]*s2[i]);x2.push(A[1][0]*s1[i]+A[1][1]*s2[i]);}
+  const mx=x1.reduce((a,b)=>a+b,0)/N,my=x2.reduce((a,b)=>a+b,0)/N;
+  cx=x1.map(v=>v-mx);cy=x2.map(v=>v-my);
+  let c00=0,c01=0,c11=0;
+  for(let i=0;i<N;i++){c00+=cx[i]*cx[i];c01+=cx[i]*cy[i];c11+=cy[i]*cy[i];}
+  c00/=N;c01/=N;c11/=N;
+  const tr=c00+c11,det=c00*c11-c01*c01;
+  const disc=Math.sqrt(Math.max(tr*tr/4-det,0));
+  const l1=tr/2+disc,l2=tr/2-disc;
+  let e1x=c01,e1y=l1-c00,e2x=c01,e2y=l2-c00;
+  let n1=Math.sqrt(e1x*e1x+e1y*e1y)||1,n2=Math.sqrt(e2x*e2x+e2y*e2y)||1;
+  e1x/=n1;e1y/=n1;e2x/=n2;e2y/=n2;
+  const sv1=1/Math.sqrt(Math.max(l1,1e-8)),sv2=1/Math.sqrt(Math.max(l2,1e-8));
+  V00=sv1*e1x;V01=sv1*e1y;V10=sv2*e2x;V11=sv2*e2y;
+  zx=[];zy=[];
+  for(let i=0;i<N;i++){zx.push(V00*cx[i]+V01*cy[i]);zy.push(V10*cx[i]+V11*cy[i]);}
+  w1=[0.7,0.71];normalize(w1);
+  w2=[0.6,-0.8];normalize(w2);
+  w1hist=[];w2hist=[];w1done=false;w2done=false;step=0;
+}
+
+function normalize(w){const n=Math.sqrt(w[0]**2+w[1]**2)||1;w[0]/=n;w[1]/=n;}
+
+function icaStep(w){
+  let g0=0,g1=0,gp=0;
+  for(let i=0;i<N;i++){
+    const u=w[0]*zx[i]+w[1]*zy[i];
+    const th=Math.tanh(u);
+    g0+=zx[i]*th;g1+=zy[i]*th;gp+=1-th*th;
+  }
+  g0/=N;g1/=N;gp/=N;
+  const nw=[g0-gp*w[0],g1-gp*w[1]];
+  normalize(nw);
+  const dot=Math.abs(nw[0]*w[0]+nw[1]*w[1]);
+  w[0]=nw[0];w[1]=nw[1];
+  return dot;
+}
+
+function orthogonalize(w,ref){
+  const dot=w[0]*ref[0]+w[1]*ref[1];
+  w[0]-=dot*ref[0];
+  w[1]-=dot*ref[1];
+  normalize(w);
+}
+
+function drawPts(cvId,dx,dy,col,sc){
+  const cv=document.getElementById(cvId);
+  const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.07)';
+  ctx.lineWidth=0.5;
+  ctx.beginPath();ctx.moveTo(W/2,8);ctx.lineTo(W/2,H-8);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(8,H/2);ctx.lineTo(W-8,H/2);ctx.stroke();
+  ctx.fillStyle=col;
+  for(let i=0;i<dx.length;i++){
+    const px=W/2+dx[i]*sc,py=H/2-dy[i]*sc;
+    if(px>2&&px<W-2&&py>2&&py<H-2){ctx.beginPath();ctx.arc(px,py,1.8,0,Math.PI*2);ctx.fill();}
+  }
+  return ctx;
+}
+
+function drawArrow(ctx,W,H,w,color,lw,label,len){
+  len=len||140;
+  ctx.save();
+  ctx.strokeStyle=color;ctx.lineWidth=lw;
+  ctx.beginPath();ctx.moveTo(W/2,H/2);
+  const ex=W/2+w[0]*len,ey=H/2-w[1]*len;
+  ctx.lineTo(ex,ey);ctx.stroke();
+  const ang=Math.atan2(-w[1],w[0]);
+  const ha=ang+Math.PI+0.4,hb=ang+Math.PI-0.4;
+  ctx.beginPath();
+  ctx.moveTo(ex+Math.cos(ha)*10,ey+Math.sin(ha)*10);
+  ctx.lineTo(ex,ey);
+  ctx.lineTo(ex+Math.cos(hb)*10,ey+Math.sin(hb)*10);
+  ctx.stroke();
+  if(label){ctx.fillStyle=color;ctx.font='500 14px "Anthropic Sans",sans-serif';ctx.fillText(label,ex+10,ey-6);}
+  ctx.restore();
+}
+
+function drawTrail(ctx,W,H,hist,color){
+  ctx.save();
+  hist.forEach((wv,i)=>{
+    const a=Math.min(0.12+i*0.05,0.45);
+    ctx.strokeStyle=color.replace('1)',a+')');
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(W/2,H/2);
+    ctx.lineTo(W/2+wv[0]*110,H/2-wv[1]*110);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function renderNav(){
+  const el=document.getElementById('nav');
+  el.innerHTML='';
+  stepsInfo.forEach((s,i)=>{
+    const b=document.createElement('button');
+    b.className='step-btn'+(i===step?' active':'');
+    b.textContent=s.label;
+    el.appendChild(b);
+  });
+}
+
+function render(){
+  renderNav();
+  const fm=document.getElementById('formula');
+  const mt=document.getElementById('mets');
+  const st=document.getElementById('status');
+  fm.style.display='none';mt.style.display='none';
+  st.textContent=stepsInfo[step].desc;
+  const purple=dk?'rgba(175,169,236,0.35)':'rgba(83,74,183,0.3)';
+  const teal=dk?'rgba(93,202,165,0.35)':'rgba(29,158,117,0.3)';
+  const W=340,H=340;
+
+  if(step===0){
+    drawPts('cvL',zx,zy,purple,120);
+    document.getElementById('labL').textContent='Whitened data z (unit covariance)';
+    const ctx2=document.getElementById('cvR').getContext('2d');ctx2.clearRect(0,0,W,H);
+    document.getElementById('labR').textContent='';
+  }
+  else if(step===1){
+    const ctx=drawPts('cvL',zx,zy,purple,120);
+    drawTrail(ctx,W,H,w1hist,dk?'rgba(226,75,74,1)':'rgba(226,75,74,1)');
+    drawArrow(ctx,W,H,w1,w1done?'#0F6E56':'#E24B4A',2.5,'w\u2081');
+    document.getElementById('labL').textContent='Finding w\u2081 (red \u2192 green when converged)';
+    const proj=zx.map((v,i)=>w1[0]*v+w1[1]*zy[i]);
+    drawHistC('cvR',proj,'#0F6E56');
+    document.getElementById('labR').textContent='Histogram of w\u2081\u1d40z';
+    fm.style.display='block';
+    fm.innerHTML='w\u207a = E{z\u00b7tanh(w\u1d40z)} \u2212 E{sech\u00b2(w\u1d40z)}\u00b7w &nbsp;&nbsp; then normalize';
+  }
+  else if(step===2){
+    const ctx=drawPts('cvL',zx,zy,purple,120);
+    drawArrow(ctx,W,H,w1,'#0F6E56',2.5,'w\u2081');
+    drawTrail(ctx,W,H,w2hist,dk?'rgba(239,159,39,1)':'rgba(186,117,23,1)');
+    drawArrow(ctx,W,H,w2,'#BA7517',2.5,'w\u2082');
+    document.getElementById('labL').textContent='w\u2082 (amber) converges toward w\u2081 (green)!';
+    const dot=Math.abs(w1[0]*w2[0]+w1[1]*w2[1]);
+    const ctx2=drawPts('cvR',zx,zy,purple,120);
+    drawArrow(ctx2,W,H,w1,'#0F6E56',2,'w\u2081');
+    drawArrow(ctx2,W,H,w2,'#BA7517',2,'w\u2082');
+    const angBetween=Math.acos(Math.min(1,Math.abs(w1[0]*w2[0]+w1[1]*w2[1])))*180/Math.PI;
+    document.getElementById('labR').textContent='Angle between: '+angBetween.toFixed(1)+'\u00b0 (should be 90\u00b0)';
+    fm.style.display='block';
+    fm.innerHTML='Without deflation: w\u2082 also maximizes non-Gaussianity \u2192 finds the same peak as w\u2081!<br>w\u2081\u00b7w\u2082 = '+dot.toFixed(4)+' (nearly parallel \u2014 BAD)';
+  }
+  else if(step===3){
+    const ctx=drawPts('cvL',zx,zy,purple,120);
+    drawArrow(ctx,W,H,w1,'#0F6E56',2.5,'w\u2081');
+    drawTrail(ctx,W,H,w2hist,dk?'rgba(55,138,221,1)':'rgba(55,138,221,1)');
+    drawArrow(ctx,W,H,w2,'#185FA5',2.5,'w\u2082');
+    document.getElementById('labL').textContent='w\u2082 (blue) with Gram-Schmidt deflation';
+    const ctx2=drawPts('cvR',zx,zy,purple,120);
+    drawArrow(ctx2,W,H,w1,'#0F6E56',2,'w\u2081');
+    drawArrow(ctx2,W,H,w2,'#185FA5',2,'w\u2082');
+    ctx2.save();
+    ctx2.strokeStyle=dk?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.15)';
+    ctx2.setLineDash([4,4]);ctx2.lineWidth=0.5;
+    const r=60;
+    ctx2.beginPath();ctx2.arc(W/2,H/2,r,0,Math.PI*2);ctx2.stroke();
+    ctx2.setLineDash([]);ctx2.restore();
+    const angBetween=Math.acos(Math.min(1,Math.abs(w1[0]*w2[0]+w1[1]*w2[1])))*180/Math.PI;
+    document.getElementById('labR').textContent='Angle: '+angBetween.toFixed(1)+'\u00b0 (orthogonal in whitened space!)';
+    fm.style.display='block';
+    fm.innerHTML='After each update: w\u2082 \u2190 w\u2082 \u2212 (w\u2082\u1d40w\u2081)w\u2081 &nbsp; then normalize<br>This is Gram-Schmidt: forces w\u2082 \u22a5 w\u2081 at every iteration';
+  }
+  else if(step===4){
+    const wO1=[V00*w1[0]+V10*w1[1],V01*w1[0]+V11*w1[1]];normalize(wO1);
+    const wO2=[V00*w2[0]+V10*w2[1],V01*w2[0]+V11*w2[1]];normalize(wO2);
+    const ctx=drawPts('cvL',zx,zy,purple,120);
+    drawArrow(ctx,W,H,w1,'#0F6E56',2.5,'w\u2081');
+    drawArrow(ctx,W,H,w2,'#185FA5',2.5,'w\u2082');
+    ctx.save();ctx.strokeStyle=dk?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)';
+    ctx.setLineDash([4,4]);ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.arc(W/2,H/2,60,0,Math.PI*2);ctx.stroke();
+    ctx.setLineDash([]);ctx.restore();
+    document.getElementById('labL').textContent='Whitened space: w\u2081 \u22a5 w\u2082 (orthogonal)';
+
+    const sc2=70;
+    const ctx2=drawPts('cvR',cx,cy,dk?'rgba(180,178,169,0.3)':'rgba(96,94,90,0.2)',sc2);
+    drawArrow(ctx2,W,H,wO1,'#0F6E56',2.5,'W\u2081',100);
+    drawArrow(ctx2,W,H,wO2,'#185FA5',2.5,'W\u2082',100);
+    document.getElementById('labR').textContent='Original space: W\u2081 and W\u2082 NOT orthogonal';
+
+    mt.style.display='grid';
+    const dotW=Math.abs(w1[0]*w2[0]+w1[1]*w2[1]);
+    const dotO=Math.abs(wO1[0]*wO2[0]+wO1[1]*wO2[1]);
+    document.getElementById('m-dot-w').textContent=dotW.toFixed(6)+' \u2248 0';
+    document.getElementById('m-dot-o').textContent=dotO.toFixed(4)+' \u2260 0';
+    fm.style.display='block';
+    fm.innerHTML='Whitened: W\u0303 = [w\u2081, w\u2082]\u1d40 is orthogonal &nbsp;\u2192&nbsp; w\u2081\u1d40w\u2082 = 0<br>Original: W = W\u0303\u00b7V is NOT orthogonal &nbsp;\u2192&nbsp; W\u2081\u1d40W\u2082 \u2260 0<br><br>Unlike PCA, ICA components are independent but not orthogonal in the original observation space.';
+  }
+}
+
+function drawHistC(cvId,proj,col){
+  const cv=document.getElementById(cvId);
+  const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  const bins=36;
+  const mn=Math.min(...proj),mx=Math.max(...proj);
+  const range=mx-mn||1;
+  const counts=new Array(bins).fill(0);
+  for(const v of proj){const idx=Math.min(bins-1,Math.floor((v-mn)/range*bins));counts[idx]++;}
+  const maxC=Math.max(...counts);
+  const pad=24,bw=(W-2*pad)/bins,barArea=H-2*pad;
+  ctx.globalAlpha=0.55;ctx.fillStyle=col;
+  for(let i=0;i<bins;i++){
+    const bh=(counts[i]/maxC)*barArea*0.85;
+    ctx.fillRect(pad+i*bw+1,H-pad-bh,bw-2,bh);
+  }
+  ctx.globalAlpha=1;
+}
+
+function runW1(){
+  if(w1done)return;
+  w1hist.push([...w1]);
+  const dot=icaStep(w1);
+  if(dot>0.999999)w1done=true;
+}
+
+function runW2naive(){
+  w2hist.push([...w2]);
+  icaStep(w2);
+}
+
+function runW2deflated(){
+  w2hist.push([...w2]);
+  icaStep(w2);
+  orthogonalize(w2,w1);
+}
+
+let subIter=0;
+function next(){
+  if(step===0){step=1;subIter=0;w1hist=[];w1=[0.7,0.71];normalize(w1);w1done=false;render();return;}
+  if(step===1){
+    if(!w1done){runW1();render();return;}
+    step=2;subIter=0;w2=[0.6,-0.8];normalize(w2);w2hist=[];
+    for(let i=0;i<15;i++)runW2naive();
+    render();return;
+  }
+  if(step===2){
+    step=3;subIter=0;
+    w2=[0.6,-0.8];normalize(w2);w2hist=[];w2done=false;
+    render();return;
+  }
+  if(step===3){
+    if(!w2done){
+      runW2deflated();
+      const dot=Math.abs(w1[0]*w2[0]+w1[1]*w2[1]);
+      if(dot<0.001)w2done=true;
+      render();return;
+    }
+    step=4;render();return;
+  }
+}
+
+function autoPlay(){
+  if(animId){clearInterval(animId);animId=null;return;}
+  animId=setInterval(()=>{
+    if(step===0){step=1;subIter=0;w1hist=[];w1=[0.7,0.71];normalize(w1);w1done=false;render();return;}
+    if(step===1&&!w1done){runW1();render();return;}
+    if(step===1&&w1done){
+      step=2;w2=[0.6,-0.8];normalize(w2);w2hist=[];
+      for(let i=0;i<15;i++)runW2naive();
+      render();return;
+    }
+    if(step===2){
+      step=3;w2=[0.6,-0.8];normalize(w2);w2hist=[];w2done=false;
+      render();return;
+    }
+    if(step===3&&!w2done){runW2deflated();const dot=Math.abs(w1[0]*w2[0]+w1[1]*w2[1]);if(dot<0.001)w2done=true;render();return;}
+    if(step===3&&w2done){step=4;render();clearInterval(animId);animId=null;return;}
+  },350);
+}
+
+function restart(){
+  if(animId){clearInterval(animId);animId=null;}
+  init();render();
+}
+
+init();render();
+</script>

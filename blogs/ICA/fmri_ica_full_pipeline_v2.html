@@ -1,0 +1,337 @@
+<style>
+.sp{display:inline-block;padding:4px 10px;border-radius:var(--border-radius-md);font-size:11px;margin:0 3px 5px 0;cursor:pointer;border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);transition:all .2s}
+.sp.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.sb{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 20px;margin-top:10px}
+.el{font-family:var(--font-mono);font-size:13px;color:var(--color-text-primary);padding:8px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);margin:8px 0;line-height:1.8}
+.ins{font-size:12px;color:var(--color-text-secondary);line-height:1.7;margin-top:8px}
+</style>
+<div style="padding:0.5rem 0">
+<div id="pills"></div>
+<div id="content"></div>
+<div style="display:flex;gap:8px;margin-top:12px">
+<button onclick="goPrev()">Previous</button>
+<button onclick="goNext()">Next step</button>
+</div>
+</div>
+<script>
+var dk=matchMedia('(prefers-color-scheme:dark)').matches;
+var cur=0;
+var stg=['Raw 4D fMRI data','Reshape to 2D matrix','PCA + whitening','FastICA decomposition','Reshape back to brain maps','Interpret components'];
+
+function drawBrain(ctx,cx,cy,r,acts){
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(cx,cy,r,r*0.85,0,0,Math.PI*2);
+  ctx.fillStyle=dk?'#3a3a38':'#e8e6df';
+  ctx.fill();
+  ctx.strokeStyle=dk?'#5F5E5A':'#B4B2A9';
+  ctx.lineWidth=1;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(cx,cy-r*0.1,r*0.55,r*0.4,0,0,Math.PI*2);
+  ctx.fillStyle=dk?'#444441':'#d3d1c7';
+  ctx.fill();
+  if(acts){
+    for(var i=0;i<acts.length;i++){
+      var a=acts[i];
+      ctx.globalAlpha=a[4]||0.7;
+      ctx.fillStyle=a[3];
+      ctx.beginPath();
+      ctx.arc(cx+a[0]*r,cy+a[1]*r,a[2]*r,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+function drawMat(ctx,x,y,w,h,rows,cols,fillFn,label,dimLbl){
+  ctx.fillStyle=dk?'rgba(58,58,56,0.4)':'rgba(232,230,223,0.6)';
+  ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle=dk?'#5F5E5A':'#B4B2A9';
+  ctx.lineWidth=0.5;
+  ctx.strokeRect(x,y,w,h);
+  if(fillFn){
+    var cw=w/cols,rh=h/rows;
+    for(var r=0;r<rows;r++){
+      for(var c=0;c<cols;c++){
+        var col=fillFn(r,c);
+        if(col){ctx.fillStyle=col;ctx.fillRect(x+c*cw+0.5,y+r*rh+0.5,cw-1,rh-1);}
+      }
+    }
+  }
+  if(label){
+    ctx.fillStyle=dk?'rgba(255,255,255,0.55)':'rgba(0,0,0,0.5)';
+    ctx.font='500 13px "Anthropic Sans",sans-serif';
+    ctx.textAlign='center';ctx.fillText(label,x+w/2,y-8);ctx.textAlign='start';
+  }
+  if(dimLbl){
+    ctx.fillStyle=dk?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.28)';
+    ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.textAlign='center';ctx.fillText(dimLbl,x+w/2,y+h+14);ctx.textAlign='start';
+  }
+}
+
+function pills(){
+  var el=document.getElementById('pills');el.innerHTML='';
+  for(var i=0;i<stg.length;i++){
+    var b=document.createElement('span');
+    b.className='sp'+(i===cur?' on':'');
+    b.textContent=(i+1)+'. '+stg[i];
+    b.setAttribute('data-i',i);
+    b.onclick=function(){cur=parseInt(this.getAttribute('data-i'));render();};
+    el.appendChild(b);
+  }
+}
+
+function goNext(){if(cur<5){cur++;render();}}
+function goPrev(){if(cur>0){cur--;render();}}
+
+function render(){
+  pills();
+  var c=document.getElementById('content');
+  if(cur===0)s0(c);else if(cur===1)s1(c);else if(cur===2)s2(c);else if(cur===3)s3(c);else if(cur===4)s4(c);else s5(c);
+}
+
+function s0(el){
+  el.innerHTML='<div class="sb"><canvas id="c0" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">Typical: 64 x 64 x 36 slices x 200 time points = ~150,000 in-brain voxels (m) x 200 time (T)</div><div class="ins">fMRI measures the BOLD signal at each voxel over time. The raw data is a 4D array: 3 spatial dims + 1 time dim. Each voxel has its own noisy time series reflecting local neural activity.</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c0');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,260);
+    for(var t=4;t>=0;t--){
+      var ox=t*16,oy=170-t*26;
+      ctx.save();ctx.globalAlpha=0.25+t*0.16;
+      drawBrain(ctx,85+ox,oy,48,null);
+      ctx.restore();
+    }
+    ctx.fillStyle=dk?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';
+    ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.fillText('t=0',140,176);ctx.fillText('t=4',204,72);
+    ctx.strokeStyle='#534AB7';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.moveTo(190,170);ctx.lineTo(240,60);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#534AB7';ctx.font='500 12px "Anthropic Sans",sans-serif';
+    ctx.fillText('time axis',210,55);
+
+    drawBrain(ctx,380,110,65,[
+      [0.2,-0.2,0.12,'#E24B4A',0.8],[-0.25,0.1,0.1,'#378ADD',0.7],[0.0,-0.4,0.08,'#1D9E75',0.7]
+    ]);
+    var tsets=[
+      {y:48,col:'#E24B4A',d:[0,0.3,0.7,0.5,0.1,0.8,1,0.6,0.2,0.1,0.5,0.9,0.6,0.2,0.4,0.8]},
+      {y:118,col:'#378ADD',d:[0.5,0.2,0.6,0.9,0.3,0.1,0.5,0.8,0.4,0.7,0.2,0.6,0.9,0.3,0.5,0.7]},
+      {y:188,col:'#1D9E75',d:[0.3,0.7,0.4,0.2,0.5,0.8,0.3,0.6,0.9,0.4,0.2,0.7,0.5,0.3,0.8,0.6]}
+    ];
+    tsets.forEach(function(ts){
+      ctx.setLineDash([3,3]);ctx.strokeStyle=ts.col;ctx.lineWidth=0.5;
+      ctx.beginPath();ctx.moveTo(420,ts.y+30);ctx.lineTo(470,ts.y+10);ctx.stroke();ctx.setLineDash([]);
+      ctx.strokeStyle=ts.col;ctx.lineWidth=1.5;ctx.beginPath();
+      for(var i=0;i<ts.d.length;i++){
+        var px=475+i*9,py=ts.y+25-ts.d[i]*20;
+        if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+    });
+    ctx.fillStyle=dk?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.25)';ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.fillText('BOLD time series per voxel',475,230);
+  },50);
+}
+
+function s1(el){
+  el.innerHTML='<div class="sb"><canvas id="c1" width="640" height="280" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">4D: (64x64x36) x 200 \u2192 2D: X (m x T) = (~150k x 200)<br>Flatten all spatial dims into rows. Each row = one voxel time series.</div><div class="ins">A brain mask keeps only in-brain voxels. The result is a tall, thin matrix. Each row is the complete BOLD time series at one spatial location. Each column is the entire brain volume at one time point.</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c1');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,280);
+    drawBrain(ctx,80,120,55,[
+      [0.15,-0.15,0.06,'#E24B4A',0.6],[-0.2,0.1,0.06,'#378ADD',0.6],[0.0,-0.3,0.05,'#1D9E75',0.5]
+    ]);
+    ctx.fillStyle=dk?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.25)';ctx.font='12px "Anthropic Sans",sans-serif';
+    ctx.fillText('4D volume',45,210);ctx.fillText('(x, y, z, t)',50,226);
+    ctx.strokeStyle='#534AB7';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(155,120);ctx.lineTo(210,120);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(204,114);ctx.lineTo(210,120);ctx.lineTo(204,126);ctx.stroke();
+    ctx.fillStyle='#534AB7';ctx.font='500 12px "Anthropic Sans",sans-serif';
+    ctx.fillText('unroll',166,110);ctx.fillText('spatial',164,140);
+    drawMat(ctx,230,30,370,220,20,12,function(r,c){
+      var v=Math.sin(r*0.7+c*0.5)*0.5+Math.cos(r*0.3-c*0.8)*0.3;
+      var a=Math.abs(v)*0.5+0.1;
+      if(v>0)return 'rgba(226,75,74,'+a+')';
+      return 'rgba(55,138,221,'+a+')';
+    },'X','(m x T) = (~150k x 200)');
+    ctx.save();ctx.translate(222,155);ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#0F6E56';ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.fillText('m voxels (rows)',0,0);ctx.restore();
+    ctx.fillStyle='#534AB7';ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.fillText('T time points (columns)',350,24);
+  },50);
+}
+
+function s2(el){
+  el.innerHTML='<div class="sb"><canvas id="c2" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">PCA on X\u1d40X (T x T = 200 x 200, small!) \u2192 keep top n eigenvecs<br>V (n x m) \u2192 z = V x\u0303 of shape (n x T), whitened: E{zz\u1d40} = I</div><div class="ins">Key trick: compute eigendecomposition on the T x T temporal correlation (200 x 200), NOT the huge m x m spatial covariance. PCA simultaneously reduces dimensions (m \u2192 n \u2248 20\u201340 components) and whitens. After this, data lives in a compact (n x T) space.</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c2');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,260);
+    drawMat(ctx,15,45,85,170,18,10,function(r,c){
+      var v=Math.sin(r*0.7+c*0.5)*0.4;var a=Math.abs(v)*0.4+0.1;
+      return v>0?'rgba(226,75,74,'+a+')':'rgba(55,138,221,'+a+')';
+    },'X','(m x T)');
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 18px "Anthropic Sans",sans-serif';
+    ctx.fillText('\u2192',115,135);
+    drawMat(ctx,150,75,55,55,6,6,function(r,c){
+      if(r===c)return 'rgba(83,74,183,'+(0.6-r*0.08)+')';
+      return 'rgba(83,74,183,'+Math.exp(-Math.abs(r-c)*0.5)*0.2+')';
+    },'X\u1d40X / T','(T x T)');
+    ctx.fillStyle='#BA7517';ctx.font='11px "Anthropic Sans",sans-serif';
+    ctx.fillText('eigendecompose',225,80);ctx.fillText('keep top n',235,96);
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 18px "Anthropic Sans",sans-serif';
+    ctx.fillText('\u2192',225,115);
+    drawMat(ctx,255,95,100,35,3,12,function(r,c){
+      return 'rgba(29,158,117,'+(Math.abs(Math.cos(r*1.2+c*0.8))*0.5+0.15)+')';
+    },'V','(n x m)');
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+    ctx.fillText('\u00d7',370,115);
+    drawMat(ctx,390,45,85,170,18,10,function(r,c){
+      var v=Math.sin(r*0.7+c*0.5)*0.4;var a=Math.abs(v)*0.4+0.1;
+      return v>0?'rgba(226,75,74,'+a+')':'rgba(55,138,221,'+a+')';
+    },'x\u0303','(m x T)');
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+    ctx.fillText('=',492,115);
+    drawMat(ctx,510,85,110,55,3,12,function(r,c){
+      var v=Math.sin(r*2.1+c*0.9)*0.6;var a=Math.abs(v)*0.5+0.2;
+      return v>0?'rgba(83,74,183,'+a+')':'rgba(29,158,117,'+a+')';
+    },'z (whitened)','(n x T)');
+  },50);
+}
+
+function s3(el){
+  el.innerHTML='<div class="sb"><canvas id="c3" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">FastICA on z (n x T): find W\u0303 (n x n) orthogonal, maximizing non-Gaussianity<br>s\u0302 = W\u0303 z \u2192 each row of s\u0302 is one independent component time course</div><div class="ins">FastICA operates entirely in the compact (n x n) whitened space. It finds n unmixing directions that maximize statistical independence of the output rows. This is fast: n is only 20\u201340 regardless of how many voxels m you have. The full unmixing is W = W\u0303 V of shape (n x m).</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c3');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,260);
+    drawMat(ctx,15,85,95,55,3,12,function(r,c){
+      var v=Math.sin(r*2.1+c*0.9)*0.6;var a=Math.abs(v)*0.5+0.2;
+      return v>0?'rgba(83,74,183,'+a+')':'rgba(29,158,117,'+a+')';
+    },'z','(n x T)');
+    ctx.fillStyle='#D85A30';ctx.font='500 13px "Anthropic Sans",sans-serif';
+    ctx.fillText('FastICA',130,85);
+    ctx.strokeStyle='#D85A30';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(122,112);ctx.lineTo(178,112);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(172,107);ctx.lineTo(178,112);ctx.lineTo(172,117);ctx.stroke();
+    drawMat(ctx,195,88,45,45,3,3,function(r,c){
+      return r===c?'rgba(216,90,48,0.65)':'rgba(216,90,48,'+(Math.random()*0.12+0.03)+')';
+    },'W\u0303','(n x n)');
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+    ctx.fillText('\u00d7',255,115);
+    drawMat(ctx,275,85,95,55,3,12,function(r,c){
+      var v=Math.sin(r*2.1+c*0.9)*0.6;var a=Math.abs(v)*0.5+0.2;
+      return v>0?'rgba(83,74,183,'+a+')':'rgba(29,158,117,'+a+')';
+    },'z','(n x T)');
+    ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+    ctx.fillText('=',385,115);
+    var tcols=['rgba(226,75,74,','rgba(55,138,221,','rgba(29,158,117,','rgba(186,117,23,'];
+    drawMat(ctx,405,85,95,55,3,12,function(r,c){
+      var v=Math.sin(r*3.5+c*1.2)*0.7;var a=Math.abs(v)*0.6+0.15;
+      return tcols[r%4]+a+')';
+    },'s\u0302 = W\u0303z','(n x T)');
+    var tcs=[[0,0.3,0.8,0.5,0.1,0.7,1,0.4,0.1,0.6,0.9,0.3,0.5,0.2,0.7,0.4],
+             [0.5,0.2,0.6,0.9,0.4,0.1,0.5,0.8,0.3,0.7,0.2,0.6,0.4,0.8,0.3,0.5],
+             [0.8,0.6,0.3,0.1,0.4,0.7,0.2,0.5,0.9,0.4,0.1,0.7,0.6,0.3,0.8,0.5]];
+    var tcl=['#E24B4A','#378ADD','#1D9E75'];
+    tcs.forEach(function(tc,ri){
+      var by=50+ri*70;
+      ctx.strokeStyle=tcl[ri];ctx.lineWidth=1.5;ctx.beginPath();
+      for(var i=0;i<tc.length;i++){
+        var px=520+i*7,py=by+25-tc[i]*20;
+        if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+      ctx.fillStyle=tcl[ri];ctx.font='500 11px "Anthropic Sans",sans-serif';
+      ctx.fillText('IC'+(ri+1),520,by+2);
+    });
+  },50);
+}
+
+function s4(el){
+  el.innerHTML='<div class="sb"><canvas id="c4" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">Full unmixing: W = W\u0303 V (n x m). Each row of W has m entries = one weight per voxel.<br>Reshape row i back to 3D brain grid \u2192 spatial map for component i.</div><div class="ins">High-magnitude voxels (positive or negative) in each row indicate brain regions belonging to that network. Thresholding these maps (e.g. |z| > 2) gives the familiar colored blobs overlaid on structural MRI.</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c4');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,260);
+    var tcols2=['rgba(226,75,74,','rgba(55,138,221,','rgba(29,158,117,'];
+    drawMat(ctx,15,70,120,80,3,16,function(r,c){
+      var v=Math.sin(r*1.8+c*0.7)*0.6;var a=Math.abs(v)*0.5+0.1;
+      return tcols2[r%3]+a+')';
+    },'W = W\u0303 V','(n x m)');
+    var maps=[
+      {lbl:'IC 1: default mode',col:'#E24B4A',spots:[[0.0,-0.3,0.15],[0.0,0.25,0.12]]},
+      {lbl:'IC 2: visual',col:'#378ADD',spots:[[0.0,0.3,0.17],[-0.15,0.2,0.08],[0.15,0.2,0.08]]},
+      {lbl:'IC 3: motor',col:'#1D9E75',spots:[[-0.25,-0.1,0.13],[0.25,-0.1,0.13]]}
+    ];
+    ctx.strokeStyle=dk?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.1)';ctx.lineWidth=0.5;ctx.setLineDash([3,3]);
+    maps.forEach(function(m,i){
+      ctx.beginPath();ctx.moveTo(135,78+i*26);ctx.lineTo(175,55+i*76);ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    maps.forEach(function(m,i){
+      var bx=180+i*155,by=30;
+      var acts=m.spots.map(function(s){return[s[0],s[1],s[2],m.col,0.75];});
+      drawBrain(ctx,bx+55,by+65,50,acts);
+      ctx.fillStyle=m.col;ctx.font='500 12px "Anthropic Sans",sans-serif';
+      ctx.fillText(m.lbl,bx+10,by+5);
+      ctx.fillStyle=dk?'rgba(255,255,255,0.25)':'rgba(0,0,0,0.2)';ctx.font='11px "Anthropic Sans",sans-serif';
+      ctx.fillText('reshape row \u2192 3D',bx+18,by+135);
+    });
+  },50);
+}
+
+function s5(el){
+  el.innerHTML='<div class="sb"><canvas id="c5" width="640" height="380" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">X \u2248 A S : each component = one spatial network + its temporal activity<br>Row of S \u2192 time course &nbsp;|&nbsp; Row of W (or col of A) \u2192 spatial map</div><div class="ins">Classic resting-state networks: default mode (mPFC + PCC, mind-wandering), visual (occipital), motor (precentral gyrus), attention (dlPFC + parietal). Noise components (head motion, CSF pulsation) also emerge \u2014 identified by edge/ventricle spatial patterns and spiky time courses, then removed as denoising.</div></div>';
+  setTimeout(function(){
+    var cv=document.getElementById('c5');if(!cv)return;
+    var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,380);
+    var nets=[
+      {name:'Default mode network',col:'#E24B4A',spots:[[0.0,-0.32,0.15],[0.0,0.25,0.12],[-0.15,-0.08,0.07]],
+       tc:[0.5,0.7,0.6,0.8,0.4,0.3,0.7,0.9,0.6,0.4,0.8,0.5,0.7,0.3,0.6,0.8,0.5,0.7],type:'n'},
+      {name:'Visual network',col:'#378ADD',spots:[[0.0,0.3,0.18],[0.15,0.22,0.08],[-0.15,0.22,0.08]],
+       tc:[0.2,0.8,0.3,0.9,0.2,0.7,0.4,0.8,0.1,0.9,0.3,0.7,0.2,0.8,0.4,0.9,0.1,0.7],type:'n'},
+      {name:'Motor network',col:'#1D9E75',spots:[[-0.25,-0.08,0.13],[0.25,-0.08,0.13],[0.0,-0.18,0.07]],
+       tc:[0.3,0.4,0.8,0.3,0.5,0.9,0.4,0.3,0.7,0.5,0.3,0.8,0.4,0.6,0.3,0.5,0.8,0.4],type:'n'},
+      {name:'Head motion artifact',col:'#888780',spots:[[0.3,0.35,0.09],[-0.3,0.35,0.09],[0.35,-0.28,0.08],[-0.35,-0.28,0.08],[0.0,-0.42,0.05],[0.0,0.42,0.05]],
+       tc:[0.1,0.1,0.1,0.1,0.9,0.8,0.1,0.1,0.1,0.1,0.1,0.1,0.7,0.1,0.1,0.1,0.1,0.6],type:'x'}
+    ];
+    nets.forEach(function(net,i){
+      var by=8+i*92;
+      var acts=net.spots.map(function(s){return[s[0],s[1],s[2],net.col,0.75];});
+      drawBrain(ctx,50,by+42,36,acts);
+      ctx.fillStyle=net.col;ctx.font='500 12px "Anthropic Sans",sans-serif';
+      ctx.fillText(net.name,100,by+20);
+      ctx.strokeStyle=net.col;ctx.lineWidth=1.5;ctx.beginPath();
+      for(var t=0;t<net.tc.length;t++){
+        var px=100+t*14,py=by+55-net.tc[t]*28;
+        if(t===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+      ctx.fillStyle=dk?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.15)';ctx.font='11px "Anthropic Sans",sans-serif';
+      ctx.fillText('time course',100,by+76);
+      if(net.type==='n'){
+        ctx.fillStyle=net.col+'25';
+        ctx.fillRect(380,by+10,120,26);
+        ctx.strokeStyle=net.col;ctx.lineWidth=0.5;ctx.strokeRect(380,by+10,120,26);
+        ctx.fillStyle=net.col;ctx.font='500 11px "Anthropic Sans",sans-serif';
+        ctx.fillText('neural network \u2713',390,by+28);
+      }else{
+        ctx.fillStyle='rgba(136,135,128,0.12)';ctx.fillRect(380,by+10,120,26);
+        ctx.strokeStyle='#888780';ctx.lineWidth=0.5;ctx.strokeRect(380,by+10,120,26);
+        ctx.fillStyle='#888780';ctx.font='500 11px "Anthropic Sans",sans-serif';
+        ctx.fillText('noise \u2192 remove',390,by+28);
+        ctx.strokeStyle='#E24B4A';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.moveTo(380,by+10);ctx.lineTo(500,by+36);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(500,by+10);ctx.lineTo(380,by+36);ctx.stroke();
+      }
+      if(i<3){
+        ctx.strokeStyle=dk?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.05)';ctx.lineWidth=0.5;
+        ctx.beginPath();ctx.moveTo(10,by+88);ctx.lineTo(620,by+88);ctx.stroke();
+      }
+    });
+  },50);
+}
+
+render();
+</script>

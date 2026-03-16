@@ -1,0 +1,252 @@
+<style>
+.sel-btn{font-size:12px;padding:5px 14px;margin:0 4px 6px 0}
+.sel-btn.on{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.row-grid{display:grid;gap:12px;margin:10px 0}
+.r3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.r2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.cv-wrap{position:relative}
+.cv-wrap canvas{width:100%;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-secondary)}
+.cv-label{text-align:center;font-size:12px;color:var(--color-text-secondary);margin-top:3px}
+.mc{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 14px}
+.mc-l{font-size:12px;color:var(--color-text-secondary)}
+.mc-v{font-size:16px;font-weight:500;color:var(--color-text-primary);margin-top:2px}
+.sec-label{font-size:14px;font-weight:500;color:var(--color-text-primary);margin:16px 0 6px}
+</style>
+<div style="padding:0.5rem 0">
+
+<div class="sec-label">Contrast function</div>
+<div id="fn-sel"></div>
+
+<div class="row-grid r3">
+  <div class="cv-wrap"><canvas id="cvG" width="220" height="180"></canvas><div class="cv-label" id="lG"></div></div>
+  <div class="cv-wrap"><canvas id="cvg" width="220" height="180"></canvas><div class="cv-label" id="lg"></div></div>
+  <div class="cv-wrap"><canvas id="cvgp" width="220" height="180"></canvas><div class="cv-label" id="lgp"></div></div>
+</div>
+
+<div class="sec-label">How g(u) scores data from different distributions</div>
+<div id="dist-sel"></div>
+
+<div class="row-grid r2">
+  <div class="cv-wrap"><canvas id="cvDist" width="300" height="220"></canvas><div class="cv-label">Input distribution p(u)</div></div>
+  <div class="cv-wrap"><canvas id="cvScore" width="300" height="220"></canvas><div class="cv-label">After applying g(u) to each sample</div></div>
+</div>
+
+<div class="row-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:12px">
+  <div class="mc"><div class="mc-l">E{G(y)} for this distribution</div><div class="mc-v" id="m-eg">--</div></div>
+  <div class="mc"><div class="mc-l">E{G(v)} for Gaussian</div><div class="mc-v" id="m-egauss">--</div></div>
+  <div class="mc"><div class="mc-l">Negentropy approx J(y)</div><div class="mc-v" id="m-neg" style="color:var(--color-text-info)">--</div></div>
+</div>
+
+<div style="font-size:13px;color:var(--color-text-secondary);margin-top:12px;line-height:1.7" id="explain"></div>
+</div>
+
+<script>
+const dk=matchMedia('(prefers-color-scheme:dark)').matches;
+const COL={
+  logcosh:{line:'#0F6E56',fill:dk?'rgba(93,202,165,0.5)':'rgba(29,158,117,0.4)',name:'logcosh / tanh'},
+  cube:{line:'#534AB7',fill:dk?'rgba(175,169,236,0.5)':'rgba(83,74,183,0.4)',name:'cube / u\u00b3'},
+  gauss:{line:'#D85A30',fill:dk?'rgba(240,153,123,0.5)':'rgba(216,90,48,0.4)',name:'exp / Gauss'}
+};
+const DISTS=['Gaussian (baseline)','Uniform (sub-Gaussian)','Laplace (super-Gaussian)','Bimodal'];
+let curFn='logcosh',curDist=1;
+
+const fns={
+  logcosh:{
+    G:u=>Math.log(Math.cosh(u)),
+    g:u=>Math.tanh(u),
+    gp:u=>{const t=Math.tanh(u);return 1-t*t;},
+    labels:['G(u) = log cosh(u)','g(u) = tanh(u)',"g'(u) = 1 \u2212 tanh\u00b2(u)"]
+  },
+  cube:{
+    G:u=>u*u*u*u/4,
+    g:u=>u*u*u,
+    gp:u=>3*u*u,
+    labels:['G(u) = u\u2074/4','g(u) = u\u00b3',"g'(u) = 3u\u00b2"]
+  },
+  gauss:{
+    G:u=>-Math.exp(-u*u/2),
+    g:u=>u*Math.exp(-u*u/2),
+    gp:u=>(1-u*u)*Math.exp(-u*u/2),
+    labels:['G(u) = \u2212exp(\u2212u\u00b2/2)','g(u) = u\u00b7exp(\u2212u\u00b2/2)',"g'(u) = (1\u2212u\u00b2)exp(\u2212u\u00b2/2)"]
+  }
+};
+
+function sampleDist(n,idx){
+  const out=[];
+  if(idx===0){for(let i=0;i<n;i++){let u=0;for(let j=0;j<12;j++)u+=Math.random();out.push(u-6);}}
+  else if(idx===1){for(let i=0;i<n;i++)out.push((Math.random()*2-1)*Math.sqrt(3));}
+  else if(idx===2){for(let i=0;i<n;i++){const u=Math.random()-0.5;out.push(-Math.sign(u)*Math.log(1-2*Math.abs(u)));}}
+  else{for(let i=0;i<n;i++){const m=Math.random()<0.5?-1.5:1.5;let u=0;for(let j=0;j<6;j++)u+=Math.random();out.push(m+(u-3)*0.4);}}
+  const mu=out.reduce((a,b)=>a+b,0)/n;
+  const centered=out.map(v=>v-mu);
+  const std=Math.sqrt(centered.reduce((a,b)=>a+b*b,0)/n)||1;
+  return centered.map(v=>v/std);
+}
+
+function drawCurve(cvId,fn,xmin,xmax,ymin,ymax,color,labelId,label){
+  const cv=document.getElementById(cvId);
+  const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  const pad=20;const pw=W-2*pad,ph=H-2*pad;
+  const toX=v=>pad+(v-xmin)/(xmax-xmin)*pw;
+  const toY=v=>pad+(ymax-v)/(ymax-ymin)*ph;
+
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)';
+  ctx.lineWidth=0.5;
+  if(ymin<0&&ymax>0){const zy=toY(0);ctx.beginPath();ctx.moveTo(pad,zy);ctx.lineTo(W-pad,zy);ctx.stroke();}
+  if(xmin<0&&xmax>0){const zx=toX(0);ctx.beginPath();ctx.moveTo(zx,pad);ctx.lineTo(zx,H-pad);ctx.stroke();}
+
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+  const steps=200;
+  for(let i=0;i<=steps;i++){
+    const u=xmin+(xmax-xmin)*i/steps;
+    const v=fn(u);
+    const cx=toX(u),cy=toY(Math.max(ymin,Math.min(ymax,v)));
+    if(i===0)ctx.moveTo(cx,cy);else ctx.lineTo(cx,cy);
+  }
+  ctx.stroke();
+  if(labelId)document.getElementById(labelId).textContent=label;
+}
+
+function drawHist(cvId,data,color,xmin,xmax){
+  const cv=document.getElementById(cvId);
+  const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  const pad=24;
+  const bins=40;
+  const range=xmax-xmin;
+  const counts=new Array(bins).fill(0);
+  for(const v of data){
+    const idx=Math.floor((v-xmin)/range*bins);
+    if(idx>=0&&idx<bins)counts[idx]++;
+  }
+  const maxC=Math.max(...counts)||1;
+  const bw=(W-2*pad)/bins;
+  const barH=H-2*pad;
+
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)';
+  ctx.lineWidth=0.5;
+  const zy=H-pad;
+  ctx.beginPath();ctx.moveTo(pad,zy);ctx.lineTo(W-pad,zy);ctx.stroke();
+
+  ctx.fillStyle=color;
+  for(let i=0;i<bins;i++){
+    const bh=(counts[i]/maxC)*barH*0.88;
+    ctx.fillRect(pad+i*bw+1,H-pad-bh,bw-2,bh);
+  }
+}
+
+function drawScoredPoints(cvId,data,scoredData,gFn,fnColor){
+  const cv=document.getElementById(cvId);
+  const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  const pad=28;
+  const pw=W-2*pad,ph=H-2*pad;
+
+  const xmin=-4,xmax=4;
+  let ymin=Math.min(...scoredData,-1);
+  let ymax=Math.max(...scoredData,1);
+  const yr=ymax-ymin;ymin-=yr*0.1;ymax+=yr*0.1;
+
+  const toX=v=>pad+(v-xmin)/(xmax-xmin)*pw;
+  const toY=v=>pad+(ymax-v)/(ymax-ymin)*ph;
+
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)';
+  ctx.lineWidth=0.5;
+  if(ymin<0&&ymax>0){const zy=toY(0);ctx.beginPath();ctx.moveTo(pad,zy);ctx.lineTo(W-pad,zy);ctx.stroke();}
+  const zx=toX(0);ctx.beginPath();ctx.moveTo(zx,pad);ctx.lineTo(zx,H-pad);ctx.stroke();
+
+  ctx.strokeStyle=fnColor;ctx.lineWidth=1.5;ctx.beginPath();
+  for(let i=0;i<=200;i++){
+    const u=xmin+(xmax-xmin)*i/200;
+    const v=gFn(u);
+    const cx=toX(u),cy=toY(Math.max(ymin,Math.min(ymax,v)));
+    if(i===0)ctx.moveTo(cx,cy);else ctx.lineTo(cx,cy);
+  }
+  ctx.stroke();
+
+  const ptCol=dk?'rgba(255,255,255,0.25)':'rgba(0,0,0,0.18)';
+  const hiCol=dk?'rgba(239,159,39,0.6)':'rgba(186,117,23,0.5)';
+  const subset=Math.min(data.length,300);
+  for(let i=0;i<subset;i++){
+    const u=data[i],gu=scoredData[i];
+    const px=toX(u),py=toY(Math.max(ymin,Math.min(ymax,gu)));
+    const intensity=Math.abs(gu)/(Math.abs(ymax-ymin)*0.5);
+    ctx.fillStyle=intensity>0.3?hiCol:ptCol;
+    ctx.beginPath();ctx.arc(px,py,2.5,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle=dk?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.04)';
+    ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(toX(u),toY(0));ctx.lineTo(px,py);ctx.stroke();
+  }
+
+  ctx.fillStyle=dk?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';
+  ctx.font='12px "Anthropic Sans",sans-serif';
+  ctx.fillText('g(u) curve',W-pad-60,pad+14);
+}
+
+function renderFnSel(){
+  const el=document.getElementById('fn-sel');
+  el.innerHTML='';
+  Object.keys(fns).forEach(k=>{
+    const b=document.createElement('button');
+    b.className='sel-btn'+(k===curFn?' on':'');
+    b.textContent=COL[k].name;
+    b.onclick=()=>{curFn=k;renderAll();};
+    el.appendChild(b);
+  });
+}
+
+function renderDistSel(){
+  const el=document.getElementById('dist-sel');
+  el.innerHTML='';
+  DISTS.forEach((d,i)=>{
+    const b=document.createElement('button');
+    b.className='sel-btn'+(i===curDist?' on':'');
+    b.textContent=d;
+    b.onclick=()=>{curDist=i;renderAll();};
+    el.appendChild(b);
+  });
+}
+
+function renderAll(){
+  renderFnSel();renderDistSel();
+  const f=fns[curFn];
+  const c=COL[curFn];
+
+  drawCurve('cvG',f.G,-4,4,-0.5,4,c.line,'lG',f.labels[0]);
+  drawCurve('cvg',f.g,-4,4,curFn==='cube'?-4:curFn==='gauss'?-1:- 1.2,curFn==='cube'?4:curFn==='gauss'?1:1.2,c.line,'lg',f.labels[1]);
+  drawCurve('cvgp',f.gp,-4,4,curFn==='cube'?-1:curFn==='gauss'?-2:-0.2,curFn==='cube'?12:curFn==='gauss'?1.2:1.2,c.line,'lgp',f.labels[2]);
+
+  const N=2000;
+  const data=sampleDist(N,curDist);
+  const gauss=sampleDist(N,0);
+  const scored=data.map(v=>f.g(v));
+  const egY=data.reduce((a,v)=>a+f.G(v),0)/N;
+  const egGauss=gauss.reduce((a,v)=>a+f.G(v),0)/N;
+  const negentropy=(egY-egGauss)**2;
+
+  drawHist('cvDist',data,c.fill,-4,4);
+  drawScoredPoints('cvScore',data,scored,f.g,c.line);
+
+  document.getElementById('m-eg').textContent=egY.toFixed(4);
+  document.getElementById('m-egauss').textContent=egGauss.toFixed(4);
+  document.getElementById('m-neg').textContent=negentropy.toFixed(6);
+
+  const expl=document.getElementById('explain');
+  const distName=DISTS[curDist];
+  if(curDist===0){
+    expl.innerHTML='The Gaussian baseline: E{G(y)} \u2248 E{G(\u03bd)}, so negentropy \u2248 0. This is the reference \u2014 any non-Gaussian distribution will have a non-zero negentropy. FastICA maximizes this quantity.';
+  }else if(curDist===1){
+    expl.innerHTML='Uniform is sub-Gaussian (lighter tails than Gaussian, bounded support). Notice how samples cluster in the middle of the g(u) curve. '+(curFn==='cube'?'The cubic g amplifies the tails heavily \u2014 but uniform has no tail outliers, so the score is moderate.':curFn==='gauss'?'The Gauss nonlinearity peaks around |u|\u22481 and decays for large |u| \u2014 it catches the flat-topped shape well.':'tanh saturates at \u00b11, so it captures the abrupt cutoff of the uniform distribution.');
+  }else if(curDist===2){
+    expl.innerHTML='Laplace is super-Gaussian (heavier tails, sharper peak). '+(curFn==='cube'?'The cubic heavily amplifies the heavy tail outliers \u2014 you can see the scored points shooting far out. This makes it sensitive but also less robust.':curFn==='gauss'?'The Gauss nonlinearity naturally matches super-Gaussian sources \u2014 it peaks at moderate |u| and downweights extreme outliers, making it the recommended choice for sparse/peaky signals.':'tanh clips the heavy tails at \u00b11, making it robust to outliers. This is why tanh is the default \u2014 it works reasonably well for both sub- and super-Gaussian.');
+  }else{
+    expl.innerHTML='Bimodal: two well-separated peaks. '+(curFn==='cube'?'The cubic amplifies the two modes in opposite directions \u2014 the third moment captures the bimodal structure.':curFn==='gauss'?'The Gauss nonlinearity catches the two modes nicely since they sit near |u|\u22481.5 where g(u) peaks.':'tanh maps the two modes to values near \u00b11, cleanly separating them.');
+  }
+}
+
+renderAll();
+</script>

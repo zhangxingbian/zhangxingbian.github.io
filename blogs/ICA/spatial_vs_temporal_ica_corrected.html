@@ -1,0 +1,170 @@
+<style>
+.col-card{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.col-head{padding:10px 16px;font-size:14px;font-weight:500;text-align:center;border-bottom:0.5px solid var(--color-border-tertiary)}
+.col-body{padding:14px 16px}
+.ri{margin-bottom:14px}
+.rl{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.rv{font-size:13px;color:var(--color-text-primary);line-height:1.6}
+.mono{font-family:var(--font-mono);font-size:12px}
+.ts{display:inline-block;padding:2px 8px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;background:#E1F5EE;color:#085041}
+.tt{display:inline-block;padding:2px 8px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;background:#EEEDFE;color:#3C3489}
+.tn{display:inline-block;padding:2px 8px;border-radius:var(--border-radius-md);font-size:11px;font-weight:500;background:#F1EFE8;color:#444441}
+.eb{font-family:var(--font-mono);font-size:13px;color:var(--color-text-primary);padding:8px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);margin:6px 0;line-height:1.8}
+.nb{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 16px;margin-top:12px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}
+</style>
+<div style="padding:0.5rem 0">
+
+<canvas id="cvTop" width="640" height="280" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary);margin-bottom:12px"></canvas>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+<div class="col-card">
+  <div class="col-head" style="background:#E1F5EE;color:#085041">Spatial ICA (sICA)</div>
+  <div class="col-body">
+    <div class="ri"><div class="rl">Data matrix fed to ICA</div><div class="rv mono">X = (T time x m voxels)</div></div>
+    <div class="ri"><div class="rl">Independence assumption</div><div class="rv"><span class="ts">Spatial maps</span> are statistically independent across voxels</div></div>
+    <div class="ri"><div class="rl">Decomposition X = A S</div><div class="eb"><span class="tn">(T x m)</span> = <span class="tt">(T x n)</span> <span class="ts">(n x m)</span><br><br>Rows of S: <span class="ts">(1 x m)</span> = spatial maps (independent!)<br>Cols of A: <span class="tt">(T x 1)</span> = time courses (may be correlated)</div></div>
+    <div class="ri"><div class="rl">Why it works</div><div class="rv">Brain networks are spatially sparse and localized. Most voxels belong to at most one network. m >> T gives plenty of spatial samples. This is the standard approach (HCP, UK Biobank, FSL MELODIC).</div></div>
+    <div class="ri"><div class="rl">PCA reduction axis</div><div class="rv mono">T \u2192 n (temporal reduction, cheap)</div></div>
+  </div>
+</div>
+
+<div class="col-card">
+  <div class="col-head" style="background:#EEEDFE;color:#3C3489">Temporal ICA (tICA)</div>
+  <div class="col-body">
+    <div class="ri"><div class="rl">Data matrix fed to ICA</div><div class="rv mono">X = (m voxels x T time)</div></div>
+    <div class="ri"><div class="rl">Independence assumption</div><div class="rv"><span class="tt">Time courses</span> are statistically independent across time</div></div>
+    <div class="ri"><div class="rl">Decomposition X = A S</div><div class="eb"><span class="tn">(m x T)</span> = <span class="ts">(m x n)</span> <span class="tt">(n x T)</span><br><br>Rows of S: <span class="tt">(1 x T)</span> = time courses (independent!)<br>Cols of A: <span class="ts">(m x 1)</span> = spatial maps (may overlap)</div></div>
+    <div class="ri"><div class="rl">Why it works</div><div class="rv">Task responses, slow drifts, cardiac pulsation, and spontaneous fluctuations have truly distinct temporal dynamics. Needs T >> n (long scans, fast TR). Used in HCP dense connectome analyses (Glasser et al. 2018).</div></div>
+    <div class="ri"><div class="rl">PCA reduction axis</div><div class="rv mono">m \u2192 n (spatial reduction, expensive)</div></div>
+  </div>
+</div>
+
+</div>
+
+<div class="nb" style="border-left:3px solid #D85A30;margin-top:16px">
+  <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">The universal rule: ICA always makes rows of S independent</div>
+  <div>The only difference between sICA and tICA is the orientation of the data matrix. In sICA, voxels go in the columns so that rows of S are m-dimensional spatial vectors. In tICA, time goes in the columns so that rows of S are T-dimensional temporal vectors. The FastICA algorithm itself is identical in both cases.</div>
+  <div style="margin-top:8px">A useful mnemonic: the dimension that appears in the <b style="font-weight:500">columns</b> of X is the dimension along which ICA enforces independence (because it becomes the row dimension of S).</div>
+</div>
+
+<div class="nb" style="margin-top:10px">
+  <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">Correcting the earlier pipeline diagrams</div>
+  <div>In the fMRI pipeline I showed earlier, I wrote X = (m x T) and called it spatial ICA. That was wrong. With X = (m x T), the rows of S are T-dimensional = time courses, which is temporal ICA. For spatial ICA, the pipeline should start with X = (T x m), or equivalently transpose X before feeding it to FastICA. The matrix algebra in the whitening and iteration steps remains the same; only the interpretation of rows vs columns changes.</div>
+</div>
+
+</div>
+<script>
+var dk=matchMedia('(prefers-color-scheme:dark)').matches;
+
+function drawBrain(ctx,cx,cy,r,acts){
+  ctx.save();ctx.beginPath();ctx.ellipse(cx,cy,r,r*0.85,0,0,Math.PI*2);
+  ctx.fillStyle=dk?'#3a3a38':'#e8e6df';ctx.fill();
+  ctx.strokeStyle=dk?'#5F5E5A':'#B4B2A9';ctx.lineWidth=1;ctx.stroke();
+  ctx.beginPath();ctx.ellipse(cx,cy-r*0.1,r*0.55,r*0.4,0,0,Math.PI*2);
+  ctx.fillStyle=dk?'#444441':'#d3d1c7';ctx.fill();
+  if(acts){for(var i=0;i<acts.length;i++){var a=acts[i];ctx.globalAlpha=a[4]||0.7;ctx.fillStyle=a[3];ctx.beginPath();ctx.arc(cx+a[0]*r,cy+a[1]*r,a[2]*r,0,Math.PI*2);ctx.fill();}}
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+function drawMat(ctx,x,y,w,h,rows,cols,fillFn){
+  ctx.fillStyle=dk?'rgba(58,58,56,0.3)':'rgba(232,230,223,0.5)';ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle=dk?'#5F5E5A':'#B4B2A9';ctx.lineWidth=0.5;ctx.strokeRect(x,y,w,h);
+  if(fillFn){var cw=w/cols,rh=h/rows;for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){var col=fillFn(r,c);if(col){ctx.fillStyle=col;ctx.fillRect(x+c*cw+0.5,y+r*rh+0.5,cw-1,rh-1);}}}
+}
+
+setTimeout(function(){
+  var cv=document.getElementById('cvTop');if(!cv)return;
+  var ctx=cv.getContext('2d');ctx.clearRect(0,0,640,280);
+
+  ctx.fillStyle='#0F6E56';ctx.font='500 13px "Anthropic Sans",sans-serif';
+  ctx.fillText('Spatial ICA: X = (T x m)',30,18);
+
+  drawMat(ctx,20,28,80,120,8,14,function(r,c){
+    var v=Math.sin(r*0.5+c*0.6)*0.5;var a=Math.abs(v)*0.4+0.1;
+    return v>0?'rgba(226,75,74,'+a+')':'rgba(55,138,221,'+a+')';
+  });
+  ctx.fillStyle='#534AB7';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.save();ctx.translate(14,95);ctx.rotate(-Math.PI/2);ctx.fillText('T time',0,0);ctx.restore();
+  ctx.fillStyle='#0F6E56';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('m voxels',40,162);
+
+  ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+  ctx.fillText('=',112,90);
+
+  drawMat(ctx,128,38,30,100,8,3,function(r,c){
+    return 'rgba(83,74,183,'+(Math.abs(Math.cos(r*0.5+c*2))*0.4+0.15)+')';
+  });
+  ctx.fillStyle='#534AB7';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('A',138,32);ctx.fillText('(T x n)',125,152);
+
+  ctx.fillStyle=dk?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';ctx.font='500 12px "Anthropic Sans",sans-serif';
+  ctx.fillText('\u00d7',168,90);
+
+  var scols=['rgba(226,75,74,','rgba(55,138,221,','rgba(29,158,117,'];
+  drawMat(ctx,182,55,100,35,3,14,function(r,c){
+    var v=Math.sin(r*2+c*0.8)*0.6;var a=Math.abs(v)*0.5+0.15;
+    return scols[r%3]+a+')';
+  });
+  ctx.fillStyle='#0F6E56';ctx.font='500 11px "Anthropic Sans",sans-serif';
+  ctx.fillText('S (n x m)',210,50);
+  ctx.fillStyle='#0F6E56';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('rows = indep spatial maps',185,108);
+  ctx.fillText('each row is (1 x m)',198,122);
+
+  drawBrain(ctx,200,210,34,[[0.0,-0.3,0.14,'#E24B4A',0.7],[0.0,0.2,0.1,'#E24B4A',0.6]]);
+  drawBrain(ctx,265,210,34,[[0.0,0.28,0.16,'#378ADD',0.7]]);
+  ctx.fillStyle=dk?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.18)';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('reshape each row \u2192 brain map',165,260);
+
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.08)';ctx.lineWidth=0.5;
+  ctx.beginPath();ctx.moveTo(330,10);ctx.lineTo(330,270);ctx.stroke();
+
+  ctx.fillStyle='#534AB7';ctx.font='500 13px "Anthropic Sans",sans-serif';
+  ctx.fillText('Temporal ICA: X = (m x T)',370,18);
+
+  drawMat(ctx,360,28,120,110,14,8,function(r,c){
+    var v=Math.sin(r*0.6+c*0.5)*0.5;var a=Math.abs(v)*0.4+0.1;
+    return v>0?'rgba(226,75,74,'+a+')':'rgba(55,138,221,'+a+')';
+  });
+  ctx.fillStyle='#0F6E56';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.save();ctx.translate(354,90);ctx.rotate(-Math.PI/2);ctx.fillText('m voxels',0,0);ctx.restore();
+  ctx.fillStyle='#534AB7';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('T time',400,152);
+
+  ctx.fillStyle=dk?'rgba(255,255,255,0.4)':'rgba(0,0,0,0.35)';ctx.font='500 14px "Anthropic Sans",sans-serif';
+  ctx.fillText('=',492,85);
+
+  drawMat(ctx,508,38,35,100,14,3,function(r,c){
+    return 'rgba(29,158,117,'+(Math.abs(Math.cos(r*0.4+c*2))*0.4+0.15)+')';
+  });
+  ctx.fillStyle='#0F6E56';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('A',520,32);ctx.fillText('(m x n)',505,152);
+
+  ctx.fillStyle=dk?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)';ctx.font='500 12px "Anthropic Sans",sans-serif';
+  ctx.fillText('\u00d7',553,85);
+
+  var tcols=['rgba(226,75,74,','rgba(83,74,183,','rgba(186,117,23,'];
+  drawMat(ctx,568,55,60,35,3,8,function(r,c){
+    var v=Math.sin(r*2.5+c*1.2)*0.6;var a=Math.abs(v)*0.5+0.15;
+    return tcols[r%3]+a+')';
+  });
+  ctx.fillStyle='#534AB7';ctx.font='500 11px "Anthropic Sans",sans-serif';
+  ctx.fillText('S (n x T)',575,50);
+  ctx.fillStyle='#534AB7';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('rows = indep',568,108);
+  ctx.fillText('time courses',568,122);
+  ctx.fillText('each row is (1 x T)',564,136);
+
+  var tcs=[[0.5,0.7,0.4,0.8,0.3,0.7,0.9,0.5,0.3,0.6,0.8,0.4],[0.2,0.8,0.2,0.9,0.3,0.7,0.2,0.8,0.3,0.9,0.2,0.7],[0.1,0.1,0.9,0.8,0.1,0.1,0.1,0.7,0.1,0.1,0.8,0.1]];
+  var tcl=['#E24B4A','#534AB7','#BA7517'];
+  tcs.forEach(function(tc,ri){
+    var bx=380+ri*85,by=195;
+    ctx.strokeStyle=tcl[ri];ctx.lineWidth=1.5;ctx.beginPath();
+    for(var t=0;t<tc.length;t++){var px=bx+t*6,py=by+25-tc[t]*22;if(t===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}
+    ctx.stroke();
+  });
+  ctx.fillStyle=dk?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.18)';ctx.font='11px "Anthropic Sans",sans-serif';
+  ctx.fillText('independent temporal signatures',385,260);
+},50);
+</script>
