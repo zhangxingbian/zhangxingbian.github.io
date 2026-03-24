@@ -1,0 +1,4823 @@
+---
+layout: post
+title: "Understanding Independent Component Analysis"
+date: 2026-03-16
+description: "An interactive guide to ICA — from the cocktail party problem to FastICA, with live visualizations you can manipulate."
+tags: [machine-learning, signal-processing, neuroscience]
+categories: [tutorial]
+giscus_comments: false
+toc:
+  beginning: true
+_styles: |
+  :root {
+    --color-background-primary: #faf9f5;
+    --color-background-secondary: #e8e6dc;
+    --color-background-info: rgba(106, 155, 204, 0.15);
+    --color-background-warning: rgba(217, 119, 87, 0.12);
+    --color-text-primary: #141413;
+    --color-text-secondary: #6b6961;
+    --color-text-info: #6a9bcc;
+    --color-text-warning: #d97757;
+    --color-border-tertiary: #e8e6dc;
+    --color-border-secondary: #b0aea5;
+    --color-border-info: #6a9bcc;
+    --border-radius-md: 6px;
+    --border-radius-lg: 10px;
+    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  /* ── Shared widget container (stand-out card) ── */
+  .ica-widget {
+    margin: 2rem 0;
+    padding: 24px;
+    background: #faf9f5;
+    border: 1px solid #e8e6dc;
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
+  .ica-widget canvas { max-width: 100%; }
+  /* ── Consolidated text tiers ──
+     Small  (14px): labels, descriptions, notes, buttons
+     Medium (16px): values, formulas, status text
+     Heading(17px): section titles within widgets
+  ── */
+  .ica-widget button {
+    font-family: "Poppins", sans-serif;
+    font-size: 14px;
+    padding: 6px 16px;
+    border: 1px solid #e8e6dc;
+    border-radius: 6px;
+    background: #faf9f5;
+    color: #141413;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ica-widget button:hover { border-color: #6a9bcc; color: #6a9bcc; }
+---
+
+<h2 id="the-cocktail-party-problem">The Cocktail Party Problem</h2>
+
+<p>
+  Consider the classical blind source separation problem. Suppose $n$ independent source signals $s_1(t), \ldots, s_n(t)$ are simultaneously active,
+  and $n$ sensors record linear mixtures of these sources. The observation model is
+</p>
+
+$$\mathbf{x}(t) = A\,\mathbf{s}(t)$$
+
+<p>
+  where $A \in \mathbb{R}^{n \times n}$ is an unknown invertible mixing matrix. Given only the observed mixtures $\mathbf{x}(t)$, the goal is to
+  recover both $A$ and $\mathbf{s}(t)$. This is the
+  <em>cocktail party problem</em>: separating individual speakers from microphone recordings that capture superpositions of all voices.
+</p>
+
+<p>
+  Two assumptions make this problem tractable. First, the source signals must be statistically independent — knowledge of one source provides no
+  information about any other. Second, at most one source may have a Gaussian distribution. Under these conditions, the mixing matrix $A$ is
+  identifiable up to permutation and scaling of its columns.
+</p>
+
+<p>
+  The demonstration below generates three independent sources — a sawtooth wave, a square pulse, and a noisy sinusoid — and mixes them through a
+  random $3 \times 3$ matrix $A$. Press <strong>Run FastICA</strong>
+  to observe the algorithm recover the original sources from the mixtures alone. Note that the recovered signals may appear reordered or sign-flipped;
+  this inherent ambiguity is a fundamental property of ICA.
+</p>
+
+<div class="ica-widget" id="widget-cocktail">
+  <style>
+    #widget-cocktail {
+      font-family: "Poppins", sans-serif;
+      color: #141413;
+    }
+    #widget-cocktail .cp-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      justify-content: center;
+    }
+    #widget-cocktail .cp-col {
+      flex: 1;
+      min-width: 280px;
+    }
+    #widget-cocktail .cp-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    #widget-cocktail .cp-label {
+      font-size: 16px;
+      color: #6b6961;
+      margin-bottom: 2px;
+    }
+    #widget-cocktail canvas {
+      max-width: 100%;
+      border: 1px solid #e8e6dc;
+      border-radius: 4px;
+      background: #faf9f5;
+      display: block;
+    }
+    #widget-cocktail .cp-row {
+      margin-bottom: 8px;
+    }
+    #widget-cocktail .cp-btns {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin: 16px 0;
+    }
+    #widget-cocktail .cp-recovered {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+    #widget-cocktail .cp-recovered > div {
+      flex: 1;
+      min-width: 200px;
+    }
+  </style>
+
+  <div class="cp-grid">
+    <div class="cp-col">
+      <div class="cp-title">Sources (unknown)</div>
+      <div class="cp-row">
+        <div class="cp-label">s<sub>1</sub> — sawtooth</div>
+        <canvas id="cp-s1" width="340" height="100"></canvas>
+      </div>
+      <div class="cp-row">
+        <div class="cp-label">s<sub>2</sub> — square pulse</div>
+        <canvas id="cp-s2" width="340" height="100"></canvas>
+      </div>
+      <div class="cp-row">
+        <div class="cp-label">s<sub>3</sub> — noisy sine</div>
+        <canvas id="cp-s3" width="340" height="100"></canvas>
+      </div>
+    </div>
+    <div class="cp-col">
+      <div class="cp-title">Mixed observations (input to ICA)</div>
+      <div class="cp-row">
+        <div class="cp-label">x<sub>1</sub></div>
+        <canvas id="cp-x1" width="340" height="100"></canvas>
+      </div>
+      <div class="cp-row">
+        <div class="cp-label">x<sub>2</sub></div>
+        <canvas id="cp-x2" width="340" height="100"></canvas>
+      </div>
+      <div class="cp-row">
+        <div class="cp-label">x<sub>3</sub></div>
+        <canvas id="cp-x3" width="340" height="100"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="cp-btns">
+    <button id="cp-btn-ica">Run FastICA</button>
+    <button id="cp-btn-new">New Signals</button>
+  </div>
+
+  <div
+    id="cp-result-section"
+    style="
+      opacity: 0;
+      max-height: 0;
+      overflow: hidden;
+      transition:
+        opacity 0.4s,
+        max-height 0.4s;
+    "
+  >
+    <div class="cp-title">Recovered sources</div>
+    <div class="cp-recovered">
+      <div>
+        <div class="cp-label">r&#x0302;<sub>1</sub></div>
+        <canvas id="cp-r1" width="340" height="100"></canvas>
+      </div>
+      <div>
+        <div class="cp-label">r&#x0302;<sub>2</sub></div>
+        <canvas id="cp-r2" width="340" height="100"></canvas>
+      </div>
+      <div>
+        <div class="cp-label">r&#x0302;<sub>3</sub></div>
+        <canvas id="cp-r3" width="340" height="100"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var N = 300;
+      var srcColors = ["#0F6E56", "#534AB7", "#D85A30"];
+      var mixColor = "#b0aea5";
+      var recColors = ["#6a9bcc", "#d97757", "#788c5d"];
+      var S, X, mixA;
+
+      /* ── signal generation ── */
+      function rand(lo, hi) {
+        return lo + Math.random() * (hi - lo);
+      }
+
+      function generateSources() {
+        S = [];
+        for (var i = 0; i < 3; i++) S[i] = new Float64Array(N);
+        var p1 = Math.round(rand(30, 55));
+        var p2 = Math.round(rand(35, 65));
+        var p3 = rand(18, 35);
+        var ph1 = rand(0, p1),
+          ph2 = rand(0, p2),
+          ph3 = rand(0, 2 * Math.PI);
+        for (var t = 0; t < N; t++) {
+          S[0][t] = 2 * (((t + ph1) % p1) / p1) - 1;
+          S[1][t] = (t + ph2) % p2 < p2 / 2 ? 1 : -1;
+          S[2][t] = Math.sin((2 * Math.PI * t) / p3 + ph3) + 0.3 * (Math.random() * 2 - 1);
+        }
+        /* normalize s3 to [-1,1] */
+        var mx = 0;
+        for (var t = 0; t < N; t++) if (Math.abs(S[2][t]) > mx) mx = Math.abs(S[2][t]);
+        if (mx > 0) for (var t = 0; t < N; t++) S[2][t] /= mx;
+      }
+
+      function makeMixingMatrix() {
+        /* generate a well-conditioned 3x3 mixing matrix */
+        for (var attempt = 0; attempt < 20; attempt++) {
+          mixA = [];
+          for (var i = 0; i < 3; i++) {
+            mixA[i] = [];
+            for (var j = 0; j < 3; j++) mixA[i][j] = rand(-1, 1);
+          }
+          /* check determinant magnitude (3x3 Sarrus rule) */
+          var det =
+            mixA[0][0] * (mixA[1][1] * mixA[2][2] - mixA[1][2] * mixA[2][1]) -
+            mixA[0][1] * (mixA[1][0] * mixA[2][2] - mixA[1][2] * mixA[2][0]) +
+            mixA[0][2] * (mixA[1][0] * mixA[2][1] - mixA[1][1] * mixA[2][0]);
+          if (Math.abs(det) > 0.3) return; /* well-conditioned enough */
+        }
+      }
+
+      function mix() {
+        X = [];
+        for (var i = 0; i < 3; i++) {
+          X[i] = new Float64Array(N);
+          for (var t = 0; t < N; t++) X[i][t] = mixA[i][0] * S[0][t] + mixA[i][1] * S[1][t] + mixA[i][2] * S[2][t];
+        }
+      }
+
+      /* ── drawing ── */
+      function drawWave(canvasId, data, color) {
+        var c = document.getElementById(canvasId);
+        if (!c) return;
+        var ctx = c.getContext("2d");
+        var W = c.width,
+          H = c.height;
+        ctx.clearRect(0, 0, W, H);
+        var mn = data[0],
+          mx = data[0];
+        for (var i = 1; i < data.length; i++) {
+          if (data[i] < mn) mn = data[i];
+          if (data[i] > mx) mx = data[i];
+        }
+        var range = mx - mn || 1;
+        var pad = 6;
+        /* zero line */
+        var zeroY = pad + (H - 2 * pad) * (mx / range);
+        ctx.strokeStyle = "#e8e6dc";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, zeroY);
+        ctx.lineTo(W, zeroY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        /* waveform */
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (var i = 0; i < data.length; i++) {
+          var x = (i / (data.length - 1)) * W;
+          var y = pad + (H - 2 * pad) * ((mx - data[i]) / range);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      function drawAll() {
+        for (var i = 0; i < 3; i++) {
+          drawWave("cp-s" + (i + 1), S[i], srcColors[i]);
+          drawWave("cp-x" + (i + 1), X[i], mixColor);
+        }
+      }
+
+      /* ── linear algebra ── */
+      function rowMean(arr) {
+        var s = 0;
+        for (var i = 0; i < arr.length; i++) s += arr[i];
+        return s / arr.length;
+      }
+
+      function centerRows(M, nr, nc) {
+        for (var i = 0; i < nr; i++) {
+          var mu = rowMean(M[i]);
+          for (var j = 0; j < nc; j++) M[i][j] -= mu;
+        }
+      }
+
+      function covMatrix(M, nr, nc) {
+        var C = [];
+        for (var i = 0; i < nr; i++) {
+          C[i] = new Float64Array(nr);
+          for (var j = 0; j <= i; j++) {
+            var s = 0;
+            for (var k = 0; k < nc; k++) s += M[i][k] * M[j][k];
+            C[i][j] = s / nc;
+            C[j][i] = C[i][j];
+          }
+        }
+        return C;
+      }
+
+      /* Jacobi eigendecomposition for n×n symmetric matrix */
+      function eigenDecomp(C, n) {
+        /* work on a copy */
+        var A = [];
+        for (var i = 0; i < n; i++) {
+          A[i] = new Float64Array(n);
+          for (var j = 0; j < n; j++) A[i][j] = C[i][j];
+        }
+        var V = [];
+        for (var i = 0; i < n; i++) {
+          V[i] = new Float64Array(n);
+          V[i][i] = 1;
+        }
+
+        for (var iter = 0; iter < 200; iter++) {
+          /* find largest off-diagonal |A[p][q]| */
+          var p = 0,
+            q = 1,
+            best = Math.abs(A[0][1]);
+          for (var i = 0; i < n; i++)
+            for (var j = i + 1; j < n; j++)
+              if (Math.abs(A[i][j]) > best) {
+                best = Math.abs(A[i][j]);
+                p = i;
+                q = j;
+              }
+          if (best < 1e-12) break;
+
+          /* rotation angle to zero out A[p][q] */
+          var theta = 0.5 * Math.atan2(2 * A[p][q], A[p][p] - A[q][q]);
+          var co = Math.cos(theta),
+            si = Math.sin(theta);
+
+          /* save original values of the 2x2 block */
+          var App = A[p][p],
+            Aqq = A[q][q],
+            Apq = A[p][q];
+
+          /* update off-diagonal elements (rows/cols other than p,q) */
+          for (var i = 0; i < n; i++) {
+            if (i === p || i === q) continue;
+            var aip = A[i][p],
+              aiq = A[i][q];
+            A[i][p] = co * aip + si * aiq;
+            A[p][i] = A[i][p];
+            A[i][q] = -si * aip + co * aiq;
+            A[q][i] = A[i][q];
+          }
+
+          /* update 2x2 diagonal block: A' = G^T A G */
+          A[p][p] = co * co * App + 2 * co * si * Apq + si * si * Aqq;
+          A[q][q] = si * si * App - 2 * co * si * Apq + co * co * Aqq;
+          A[p][q] = 0;
+          A[q][p] = 0;
+
+          /* accumulate eigenvectors: V = V * G */
+          for (var i = 0; i < n; i++) {
+            var vp = V[i][p],
+              vq = V[i][q];
+            V[i][p] = co * vp + si * vq;
+            V[i][q] = -si * vp + co * vq;
+          }
+        }
+
+        var eigenvalues = [];
+        for (var i = 0; i < n; i++) eigenvalues[i] = A[i][i];
+        return { values: eigenvalues, vectors: V };
+      }
+
+      function whitenData(M, nr, nc) {
+        var C = covMatrix(M, nr, nc);
+        var eig = eigenDecomp(C, nr);
+        var d = eig.values,
+          Ev = eig.vectors;
+
+        /* D^{-1/2} */
+        var dInv = [];
+        for (var i = 0; i < nr; i++) dInv[i] = d[i] > 1e-10 ? 1 / Math.sqrt(d[i]) : 0;
+
+        /* whitening matrix Wh = D^{-1/2} E^T  (nr × nr) */
+        var Wh = [];
+        for (var i = 0; i < nr; i++) {
+          Wh[i] = new Float64Array(nr);
+          for (var j = 0; j < nr; j++) Wh[i][j] = dInv[i] * Ev[j][i]; /* E^T: row i of E^T = col i of E */
+        }
+
+        /* z = Wh * M  (nr × nc) */
+        var Z = [];
+        for (var i = 0; i < nr; i++) {
+          Z[i] = new Float64Array(nc);
+          for (var t = 0; t < nc; t++) {
+            var s = 0;
+            for (var k = 0; k < nr; k++) s += Wh[i][k] * M[k][t];
+            Z[i][t] = s;
+          }
+        }
+        return Z;
+      }
+
+      /* ── FastICA (deflation with tanh) ── */
+      function fastICA(data, nComp) {
+        var nDim = data.length;
+        var nSamp = data[0].length;
+
+        /* copy and center */
+        var Xc = [];
+        for (var i = 0; i < nDim; i++) {
+          Xc[i] = new Float64Array(nSamp);
+          for (var t = 0; t < nSamp; t++) Xc[i][t] = data[i][t];
+        }
+        centerRows(Xc, nDim, nSamp);
+
+        /* whiten */
+        var Z = whitenData(Xc, nDim, nSamp);
+
+        /* extract components one by one (deflation) */
+        var W = [];
+        for (var p = 0; p < nComp; p++) {
+          /* random init */
+          var w = new Float64Array(nDim);
+          for (var i = 0; i < nDim; i++) w[i] = Math.random() - 0.5;
+          var nm = 0;
+          for (var i = 0; i < nDim; i++) nm += w[i] * w[i];
+          nm = Math.sqrt(nm);
+          for (var i = 0; i < nDim; i++) w[i] /= nm;
+
+          for (var iter = 0; iter < 200; iter++) {
+            /* w^T z for each sample */
+            var wx = new Float64Array(nSamp);
+            for (var t = 0; t < nSamp; t++) {
+              var s = 0;
+              for (var i = 0; i < nDim; i++) s += w[i] * Z[i][t];
+              wx[t] = s;
+            }
+
+            /* g(u) = tanh(u), g'(u) = 1 - tanh^2(u) */
+            var gSum = new Float64Array(nDim);
+            var gpSum = 0;
+            for (var t = 0; t < nSamp; t++) {
+              var th = Math.tanh(wx[t]);
+              var gp = 1 - th * th;
+              for (var i = 0; i < nDim; i++) gSum[i] += Z[i][t] * th;
+              gpSum += gp;
+            }
+
+            /* w_new = E{z g(w^T z)} - E{g'(w^T z)} w */
+            var wNew = new Float64Array(nDim);
+            var gpMean = gpSum / nSamp;
+            for (var i = 0; i < nDim; i++) wNew[i] = gSum[i] / nSamp - gpMean * w[i];
+
+            /* deflation: Gram-Schmidt against previous components */
+            for (var j = 0; j < p; j++) {
+              var dot = 0;
+              for (var i = 0; i < nDim; i++) dot += wNew[i] * W[j][i];
+              for (var i = 0; i < nDim; i++) wNew[i] -= dot * W[j][i];
+            }
+
+            /* normalize */
+            nm = 0;
+            for (var i = 0; i < nDim; i++) nm += wNew[i] * wNew[i];
+            nm = Math.sqrt(nm);
+            if (nm < 1e-10) break;
+            for (var i = 0; i < nDim; i++) wNew[i] /= nm;
+
+            /* convergence check */
+            var dotConv = 0;
+            for (var i = 0; i < nDim; i++) dotConv += wNew[i] * w[i];
+            w = wNew;
+            if (Math.abs(Math.abs(dotConv) - 1) < 1e-6) break;
+          }
+          W[p] = w;
+        }
+
+        /* recover: s_p[t] = w_p . z[t] */
+        var rec = [];
+        for (var p = 0; p < nComp; p++) {
+          rec[p] = new Float64Array(nSamp);
+          for (var t = 0; t < nSamp; t++) {
+            var s = 0;
+            for (var i = 0; i < nDim; i++) s += W[p][i] * Z[i][t];
+            rec[p][t] = s;
+          }
+          /* normalize to [-1,1] */
+          var mx = 0;
+          for (var t = 0; t < nSamp; t++) if (Math.abs(rec[p][t]) > mx) mx = Math.abs(rec[p][t]);
+          if (mx > 0) for (var t = 0; t < nSamp; t++) rec[p][t] /= mx;
+        }
+        return rec;
+      }
+
+      /* ── init ── */
+      function init() {
+        generateSources();
+        makeMixingMatrix();
+        mix();
+        drawAll();
+        var rs = document.getElementById("cp-result-section");
+        rs.style.opacity = "0";
+        rs.style.maxHeight = "0";
+      }
+      init();
+
+      /* ── buttons ── */
+      document.getElementById("cp-btn-ica").addEventListener("click", function () {
+        var R = fastICA(X, 3);
+        for (var i = 0; i < 3; i++) drawWave("cp-r" + (i + 1), R[i], recColors[i]);
+        var rs = document.getElementById("cp-result-section");
+        rs.style.opacity = "1";
+        rs.style.maxHeight = "600px";
+      });
+
+      document.getElementById("cp-btn-new").addEventListener("click", function () {
+        init();
+      });
+    })();
+  </script>
+</div>
+
+<h2 id="non-gaussianity">Non-Gaussianity and the Central Limit Theorem</h2>
+
+<p>
+  The core mathematical insight behind ICA derives from the Central Limit Theorem (CLT): any linear combination of independent random variables tends
+  toward a Gaussian distribution. The contrapositive is equally important — if we seek a projection direction $\mathbf{w}$ such that the scalar
+  projection $\mathbf{w}^T\mathbf{x}$ is <em>maximally non-Gaussian</em>, that direction recovers one of the original independent sources.
+</p>
+
+<p>
+  To quantify departures from Gaussianity, ICA employs <em>negentropy</em>, defined as $J(y) = H(y_{\mathrm{gauss}}) - H(y)$, where $H$ denotes
+  differential entropy and $y_{\mathrm{gauss}}$ is a Gaussian variable with the same variance as $y$. Since the Gaussian distribution maximizes
+  entropy for a given variance, negentropy is always non-negative and equals zero if and only if $y$ is Gaussian.
+</p>
+
+<p>
+  Computing negentropy directly requires estimating the probability density, which is impractical in high dimensions. FastICA instead uses the
+  approximation
+</p>
+
+$$J(y) \approx \bigl[E\{G(y)\} - E\{G(\nu)\}\bigr]^2$$
+
+<p>
+  where $\nu \sim \mathcal{N}(0,1)$ and $G$ is a smooth nonlinear <em>contrast function</em>. Three standard choices are $G(u) = \log\cosh(u)$ (robust
+  and general-purpose), $G(u) = u^4/4$ (sensitive to kurtosis), and $G(u) = -\exp(-u^2/2)$ (optimal for super-Gaussian sources). The derivative $g(u)
+  = G'(u)$ serves as a scoring function in the fixed-point update, weighting each data point by its contribution to the non-Gaussianity measure.
+</p>
+
+<p>
+  Explore the three contrast functions below. Select a function and a distribution type to observe how $g(u)$ maps samples from different
+  distributions. The highlighted points (amber) have large $|g(u)|$ values and contribute most strongly to the FastICA update direction.
+</p>
+
+<div class="ica-widget" id="widget-contrast">
+  <style>
+    .ica-widget button {
+      font-family: "Poppins", sans-serif;
+      font-size: 14px;
+      padding: 6px 16px;
+      border: 1px solid #e8e6dc;
+      border-radius: 6px;
+      background: #faf9f5;
+      color: #141413;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .ica-widget button:hover {
+      border-color: #6a9bcc;
+      color: #6a9bcc;
+    }
+    #widget-contrast .sel-btn {
+      font-size: 14px;
+      padding: 5px 14px;
+      margin: 0 4px 6px 0;
+    }
+    #widget-contrast .sel-btn.on {
+      background: var(--color-background-info);
+      color: var(--color-text-info);
+      border-color: var(--color-border-info);
+    }
+    #widget-contrast .row-grid {
+      display: grid;
+      gap: 12px;
+      margin: 10px 0;
+    }
+    #widget-contrast .r3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    #widget-contrast .r2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    #widget-contrast .cv-wrap {
+      position: relative;
+    }
+    #widget-contrast .cv-wrap canvas {
+      width: 100%;
+      border: 0.5px solid var(--color-border-tertiary);
+      border-radius: var(--border-radius-md);
+      background: var(--color-background-secondary);
+    }
+    #widget-contrast .cv-label {
+      text-align: center;
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin-top: 3px;
+    }
+    #widget-contrast .mc {
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      padding: 10px 14px;
+    }
+    #widget-contrast .mc-l {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+    #widget-contrast .mc-v {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin-top: 2px;
+    }
+    #widget-contrast .sec-label {
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin: 16px 0 6px;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <div class="sec-label">Contrast function</div>
+    <div id="cf-fn-sel"></div>
+
+    <div class="row-grid r3">
+      <div class="cv-wrap">
+        <canvas id="cf-cvG" width="220" height="180"></canvas>
+        <div class="cv-label" id="cf-lG"></div>
+      </div>
+      <div class="cv-wrap">
+        <canvas id="cf-cvg" width="220" height="180"></canvas>
+        <div class="cv-label" id="cf-lg"></div>
+      </div>
+      <div class="cv-wrap">
+        <canvas id="cf-cvgp" width="220" height="180"></canvas>
+        <div class="cv-label" id="cf-lgp"></div>
+      </div>
+    </div>
+
+    <div class="sec-label">How g(u) scores data from different distributions</div>
+    <div id="cf-dist-sel"></div>
+
+    <div class="row-grid r2">
+      <div class="cv-wrap">
+        <canvas id="cf-cvDist" width="300" height="220"></canvas>
+        <div class="cv-label">Input distribution p(u)</div>
+      </div>
+      <div class="cv-wrap">
+        <canvas id="cf-cvScore" width="300" height="220"></canvas>
+        <div class="cv-label">After applying g(u) to each sample</div>
+      </div>
+    </div>
+
+    <div class="row-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px">
+      <div class="mc">
+        <div class="mc-l">E{G(y)} for this distribution</div>
+        <div class="mc-v" id="cf-m-eg">--</div>
+      </div>
+      <div class="mc">
+        <div class="mc-l">E{G(v)} for Gaussian</div>
+        <div class="mc-v" id="cf-m-egauss">--</div>
+      </div>
+      <div class="mc">
+        <div class="mc-l">Negentropy approx J(y)</div>
+        <div class="mc-v" id="cf-m-neg" style="color: var(--color-text-info)">--</div>
+      </div>
+    </div>
+
+    <div style="font-size: 16px; color: var(--color-text-secondary); margin-top: 12px; line-height: 1.7" id="cf-explain"></div>
+  </div>
+
+  <script>
+    (function () {
+      const dk = false;
+      const COL = {
+        logcosh: { line: "#0F6E56", fill: dk ? "rgba(93,202,165,0.5)" : "rgba(29,158,117,0.4)", name: "logcosh / tanh" },
+        cube: { line: "#534AB7", fill: dk ? "rgba(175,169,236,0.5)" : "rgba(83,74,183,0.4)", name: "cube / u\u00b3" },
+        gauss: { line: "#D85A30", fill: dk ? "rgba(240,153,123,0.5)" : "rgba(216,90,48,0.4)", name: "exp / Gauss" },
+      };
+      const DISTS = ["Gaussian (baseline)", "Uniform (sub-Gaussian)", "Laplace (super-Gaussian)", "Bimodal"];
+      let curFn = "logcosh",
+        curDist = 1;
+
+      const fns = {
+        logcosh: {
+          G: (u) => Math.log(Math.cosh(u)),
+          g: (u) => Math.tanh(u),
+          gp: (u) => {
+            const t = Math.tanh(u);
+            return 1 - t * t;
+          },
+          labels: ["G(u) = log cosh(u)", "g(u) = tanh(u)", "g'(u) = 1 \u2212 tanh\u00b2(u)"],
+        },
+        cube: {
+          G: (u) => (u * u * u * u) / 4,
+          g: (u) => u * u * u,
+          gp: (u) => 3 * u * u,
+          labels: ["G(u) = u\u2074/4", "g(u) = u\u00b3", "g'(u) = 3u\u00b2"],
+        },
+        gauss: {
+          G: (u) => -Math.exp((-u * u) / 2),
+          g: (u) => u * Math.exp((-u * u) / 2),
+          gp: (u) => (1 - u * u) * Math.exp((-u * u) / 2),
+          labels: ["G(u) = \u2212exp(\u2212u\u00b2/2)", "g(u) = u\u00b7exp(\u2212u\u00b2/2)", "g'(u) = (1\u2212u\u00b2)exp(\u2212u\u00b2/2)"],
+        },
+      };
+
+      function sampleDist(n, idx) {
+        const out = [];
+        if (idx === 0) {
+          for (let i = 0; i < n; i++) {
+            let u = 0;
+            for (let j = 0; j < 12; j++) u += Math.random();
+            out.push(u - 6);
+          }
+        } else if (idx === 1) {
+          for (let i = 0; i < n; i++) out.push((Math.random() * 2 - 1) * Math.sqrt(3));
+        } else if (idx === 2) {
+          for (let i = 0; i < n; i++) {
+            const u = Math.random() - 0.5;
+            out.push(-Math.sign(u) * Math.log(1 - 2 * Math.abs(u)));
+          }
+        } else {
+          for (let i = 0; i < n; i++) {
+            const m = Math.random() < 0.5 ? -1.5 : 1.5;
+            let u = 0;
+            for (let j = 0; j < 6; j++) u += Math.random();
+            out.push(m + (u - 3) * 0.4);
+          }
+        }
+        const mu = out.reduce((a, b) => a + b, 0) / n;
+        const centered = out.map((v) => v - mu);
+        const std = Math.sqrt(centered.reduce((a, b) => a + b * b, 0) / n) || 1;
+        return centered.map((v) => v / std);
+      }
+
+      function drawCurve(cvId, fn, xmin, xmax, ymin, ymax, color, labelId, label) {
+        const cv = document.getElementById(cvId);
+        const ctx = cv.getContext("2d");
+        const W = cv.width,
+          H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        const pad = 20;
+        const pw = W - 2 * pad,
+          ph = H - 2 * pad;
+        const toX = (v) => pad + ((v - xmin) / (xmax - xmin)) * pw;
+        const toY = (v) => pad + ((ymax - v) / (ymax - ymin)) * ph;
+
+        ctx.strokeStyle = dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+        ctx.lineWidth = 0.5;
+        if (ymin < 0 && ymax > 0) {
+          const zy = toY(0);
+          ctx.beginPath();
+          ctx.moveTo(pad, zy);
+          ctx.lineTo(W - pad, zy);
+          ctx.stroke();
+        }
+        if (xmin < 0 && xmax > 0) {
+          const zx = toX(0);
+          ctx.beginPath();
+          ctx.moveTo(zx, pad);
+          ctx.lineTo(zx, H - pad);
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const steps = 200;
+        for (let i = 0; i <= steps; i++) {
+          const u = xmin + ((xmax - xmin) * i) / steps;
+          const v = fn(u);
+          const cx = toX(u),
+            cy = toY(Math.max(ymin, Math.min(ymax, v)));
+          if (i === 0) ctx.moveTo(cx, cy);
+          else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+        if (labelId) document.getElementById(labelId).textContent = label;
+      }
+
+      function drawHist(cvId, data, color, xmin, xmax) {
+        const cv = document.getElementById(cvId);
+        const ctx = cv.getContext("2d");
+        const W = cv.width,
+          H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        const pad = 24;
+        const bins = 40;
+        const range = xmax - xmin;
+        const counts = new Array(bins).fill(0);
+        for (const v of data) {
+          const idx = Math.floor(((v - xmin) / range) * bins);
+          if (idx >= 0 && idx < bins) counts[idx]++;
+        }
+        const maxC = Math.max(...counts) || 1;
+        const bw = (W - 2 * pad) / bins;
+        const barH = H - 2 * pad;
+
+        ctx.strokeStyle = dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+        ctx.lineWidth = 0.5;
+        const zy = H - pad;
+        ctx.beginPath();
+        ctx.moveTo(pad, zy);
+        ctx.lineTo(W - pad, zy);
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        for (let i = 0; i < bins; i++) {
+          const bh = (counts[i] / maxC) * barH * 0.88;
+          ctx.fillRect(pad + i * bw + 1, H - pad - bh, bw - 2, bh);
+        }
+      }
+
+      function drawScoredPoints(cvId, data, scoredData, gFn, fnColor) {
+        const cv = document.getElementById(cvId);
+        const ctx = cv.getContext("2d");
+        const W = cv.width,
+          H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        const pad = 28;
+        const pw = W - 2 * pad,
+          ph = H - 2 * pad;
+
+        const xmin = -4,
+          xmax = 4;
+        let ymin = Math.min(...scoredData, -1);
+        let ymax = Math.max(...scoredData, 1);
+        const yr = ymax - ymin;
+        ymin -= yr * 0.1;
+        ymax += yr * 0.1;
+
+        const toX = (v) => pad + ((v - xmin) / (xmax - xmin)) * pw;
+        const toY = (v) => pad + ((ymax - v) / (ymax - ymin)) * ph;
+
+        ctx.strokeStyle = dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+        ctx.lineWidth = 0.5;
+        if (ymin < 0 && ymax > 0) {
+          const zy = toY(0);
+          ctx.beginPath();
+          ctx.moveTo(pad, zy);
+          ctx.lineTo(W - pad, zy);
+          ctx.stroke();
+        }
+        const zx = toX(0);
+        ctx.beginPath();
+        ctx.moveTo(zx, pad);
+        ctx.lineTo(zx, H - pad);
+        ctx.stroke();
+
+        ctx.strokeStyle = fnColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i <= 200; i++) {
+          const u = xmin + ((xmax - xmin) * i) / 200;
+          const v = gFn(u);
+          const cx = toX(u),
+            cy = toY(Math.max(ymin, Math.min(ymax, v)));
+          if (i === 0) ctx.moveTo(cx, cy);
+          else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+
+        const ptCol = dk ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.4)";
+        const hiCol = dk ? "rgba(239,159,39,0.6)" : "rgba(186,117,23,0.5)";
+        const subset = Math.min(data.length, 300);
+        for (let i = 0; i < subset; i++) {
+          const u = data[i],
+            gu = scoredData[i];
+          const px = toX(u),
+            py = toY(Math.max(ymin, Math.min(ymax, gu)));
+          const intensity = Math.abs(gu) / (Math.abs(ymax - ymin) * 0.5);
+          ctx.fillStyle = intensity > 0.3 ? hiCol : ptCol;
+          ctx.beginPath();
+          ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(toX(u), toY(0));
+          ctx.lineTo(px, py);
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.5)";
+        ctx.font = '14px "Poppins",sans-serif';
+        ctx.fillText("g(u) curve", W - pad - 60, pad + 14);
+      }
+
+      function renderFnSel() {
+        const el = document.getElementById("cf-fn-sel");
+        el.innerHTML = "";
+        Object.keys(fns).forEach((k) => {
+          const b = document.createElement("button");
+          b.className = "sel-btn" + (k === curFn ? " on" : "");
+          b.textContent = COL[k].name;
+          b.onclick = () => {
+            curFn = k;
+            renderAll();
+          };
+          el.appendChild(b);
+        });
+      }
+
+      function renderDistSel() {
+        const el = document.getElementById("cf-dist-sel");
+        el.innerHTML = "";
+        DISTS.forEach((d, i) => {
+          const b = document.createElement("button");
+          b.className = "sel-btn" + (i === curDist ? " on" : "");
+          b.textContent = d;
+          b.onclick = () => {
+            curDist = i;
+            renderAll();
+          };
+          el.appendChild(b);
+        });
+      }
+
+      function renderAll() {
+        renderFnSel();
+        renderDistSel();
+        const f = fns[curFn];
+        const c = COL[curFn];
+
+        drawCurve(
+          "cf-cvG",
+          f.G,
+          -4,
+          4,
+          curFn === "gauss" ? -1.2 : -0.5,
+          curFn === "gauss" ? 0.2 : 4,
+          c.line,
+          "cf-lG",
+          f.labels[0]
+        );
+        drawCurve(
+          "cf-cvg",
+          f.g,
+          -4,
+          4,
+          curFn === "cube" ? -4 : curFn === "gauss" ? -1 : -1.2,
+          curFn === "cube" ? 4 : curFn === "gauss" ? 1 : 1.2,
+          c.line,
+          "cf-lg",
+          f.labels[1]
+        );
+        drawCurve(
+          "cf-cvgp",
+          f.gp,
+          -4,
+          4,
+          curFn === "cube" ? -1 : curFn === "gauss" ? -2 : -0.2,
+          curFn === "cube" ? 12 : curFn === "gauss" ? 1.2 : 1.2,
+          c.line,
+          "cf-lgp",
+          f.labels[2]
+        );
+
+        const N = 2000;
+        const data = sampleDist(N, curDist);
+        const gauss = sampleDist(N, 0);
+        const scored = data.map((v) => f.g(v));
+        const egY = data.reduce((a, v) => a + f.G(v), 0) / N;
+        const egGauss = gauss.reduce((a, v) => a + f.G(v), 0) / N;
+        const negentropy = (egY - egGauss) ** 2;
+
+        drawHist("cf-cvDist", data, c.fill, -4, 4);
+        drawScoredPoints("cf-cvScore", data, scored, f.g, c.line);
+
+        document.getElementById("cf-m-eg").textContent = egY.toFixed(4);
+        document.getElementById("cf-m-egauss").textContent = egGauss.toFixed(4);
+        document.getElementById("cf-m-neg").textContent = negentropy.toFixed(6);
+
+        const expl = document.getElementById("cf-explain");
+        const distName = DISTS[curDist];
+        if (curDist === 0) {
+          expl.innerHTML =
+            "The Gaussian baseline: E{G(y)} \u2248 E{G(\u03bd)}, so negentropy \u2248 0. This is the reference \u2014 any non-Gaussian distribution will have a non-zero negentropy. FastICA maximizes this quantity.";
+        } else if (curDist === 1) {
+          expl.innerHTML =
+            "Uniform is sub-Gaussian (lighter tails than Gaussian, bounded support). Notice how samples cluster in the middle of the g(u) curve. " +
+            (curFn === "cube"
+              ? "The cubic g amplifies the tails heavily \u2014 but uniform has no tail outliers, so the score is moderate."
+              : curFn === "gauss"
+                ? "The Gauss nonlinearity peaks around |u|\u22481 and decays for large |u| \u2014 it catches the flat-topped shape well."
+                : "tanh saturates at \u00b11, so it captures the abrupt cutoff of the uniform distribution.");
+        } else if (curDist === 2) {
+          expl.innerHTML =
+            "Laplace is super-Gaussian (heavier tails, sharper peak). " +
+            (curFn === "cube"
+              ? "The cubic heavily amplifies the heavy tail outliers \u2014 you can see the scored points shooting far out. This makes it sensitive but also less robust."
+              : curFn === "gauss"
+                ? "The Gauss nonlinearity naturally matches super-Gaussian sources \u2014 it peaks at moderate |u| and downweights extreme outliers, making it the recommended choice for sparse/peaky signals."
+                : "tanh clips the heavy tails at \u00b11, making it robust to outliers. This is why tanh is the default \u2014 it works reasonably well for both sub- and super-Gaussian.");
+        } else {
+          expl.innerHTML =
+            "Bimodal: two well-separated peaks. " +
+            (curFn === "cube"
+              ? "The cubic amplifies the two modes in opposite directions \u2014 the third moment captures the bimodal structure."
+              : curFn === "gauss"
+                ? "The Gauss nonlinearity catches the two modes nicely since they sit near |u|\u22481.5 where g(u) peaks."
+                : "tanh maps the two modes to values near \u00b11, cleanly separating them.");
+        }
+      }
+
+      renderAll();
+    })();
+  </script>
+</div>
+
+<h2 id="the-negentropy-landscape">The Negentropy Landscape</h2>
+
+<p>
+  To build geometric intuition, consider the two-dimensional case. After whitening (described in the next section), the unit-norm constraint
+  $\|\mathbf{w}\| = 1$ reduces the search space to a circle, parameterized by a single angle $\theta$. The negentropy $J(\theta)$ traces a landscape
+  over this circle, with peaks at directions that recover independent sources.
+</p>
+
+<p>
+  FastICA performs approximate Newton's method on this landscape, ascending toward a peak from any starting angle. Drag the slider below to observe
+  how the projected histogram changes with $\theta$, or press <strong>Run FastICA climb</strong> to watch the algorithm converge to a peak of
+  $J(\theta)$.
+</p>
+
+<div class="ica-widget" id="widget-negentropy">
+  <style>
+    #widget-negentropy .fn-btn {
+      font-size: 14px;
+      padding: 5px 14px;
+      margin: 0 4px 6px 0;
+    }
+    #widget-negentropy .fn-btn.on {
+      background: var(--color-background-info);
+      color: var(--color-text-info);
+      border-color: var(--color-border-info);
+    }
+    #widget-negentropy .mc2 {
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      padding: 10px 14px;
+    }
+    #widget-negentropy .mc2 .l {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+    #widget-negentropy .mc2 .v {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin-top: 2px;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <div id="neg-fsel2"></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 0">
+      <div>
+        <canvas
+          id="neg-cvLand"
+          width="340"
+          height="280"
+          style="
+            width: 100%;
+            border: 0.5px solid var(--color-border-tertiary);
+            border-radius: var(--border-radius-md);
+            background: var(--color-background-secondary);
+          "
+        ></canvas>
+        <div style="text-align: center; font-size: 14px; color: var(--color-text-secondary); margin-top: 3px">
+          Negentropy J(θ) vs projection angle θ
+        </div>
+      </div>
+      <div>
+        <canvas
+          id="neg-cvProj"
+          width="340"
+          height="280"
+          style="
+            width: 100%;
+            border: 0.5px solid var(--color-border-tertiary);
+            border-radius: var(--border-radius-md);
+            background: var(--color-background-secondary);
+          "
+        ></canvas>
+        <div style="text-align: center; font-size: 14px; color: var(--color-text-secondary); margin-top: 3px">
+          Data + current w direction + histogram
+        </div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; margin: 8px 0">
+      <label style="font-size: 16px; color: var(--color-text-secondary); min-width: 60px">Angle θ</label>
+      <input type="range" id="neg-ang2" min="0" max="180" value="0" step="1" style="flex: 1" />
+      <span id="neg-ang2-v" style="font-size: 16px; font-weight: 500; min-width: 36px; text-align: right">0°</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 10px 0">
+      <div class="mc2">
+        <div class="l">Current angle</div>
+        <div class="v" id="neg-m2-ang">0°</div>
+      </div>
+      <div class="mc2">
+        <div class="l">J(θ) at current angle</div>
+        <div class="v" id="neg-m2-j" style="color: var(--color-text-info)">--</div>
+      </div>
+      <div class="mc2">
+        <div class="l">Peak angle (true source)</div>
+        <div class="v" id="neg-m2-peak">--</div>
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px">
+      <button onclick="document.getElementById('widget-negentropy')._animateSweep()">Sweep animation</button>
+      <button onclick="document.getElementById('widget-negentropy')._animateFastICA()">Run FastICA climb</button>
+      <button onclick="document.getElementById('widget-negentropy')._resetData2()">New random data</button>
+    </div>
+    <div style="font-size: 16px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.7" id="neg-expl2"></div>
+  </div>
+
+  <script>
+    (function () {
+      var dk2 = false;
+      var N2 = 800;
+      var zx2 = [],
+        zy2 = [];
+      var fn2 = "logcosh";
+      var landscape = [];
+      var peakAng = 0;
+      var anim2 = null;
+
+      var fns2 = {
+        logcosh: {
+          G: function (u) {
+            return Math.log(Math.cosh(u));
+          },
+          g: function (u) {
+            return Math.tanh(u);
+          },
+          gp: function (u) {
+            var t = Math.tanh(u);
+            return 1 - t * t;
+          },
+          col: "#0F6E56",
+        },
+        cube: {
+          G: function (u) {
+            return Math.pow(u, 4) / 4;
+          },
+          g: function (u) {
+            return Math.pow(u, 3);
+          },
+          gp: function (u) {
+            return 3 * u * u;
+          },
+          col: "#534AB7",
+        },
+        gauss: {
+          G: function (u) {
+            return -Math.exp((-u * u) / 2);
+          },
+          g: function (u) {
+            return u * Math.exp((-u * u) / 2);
+          },
+          gp: function (u) {
+            return (1 - u * u) * Math.exp((-u * u) / 2);
+          },
+          col: "#D85A30",
+        },
+      };
+
+      function genData2() {
+        var s1 = [],
+          s2 = [];
+        for (var i = 0; i < N2; i++) {
+          s1.push(Math.random() * 2 - 1);
+          s2.push((Math.random() < 0.5 ? -1.5 : 1.5) + 0.35 * (Math.random() + Math.random() + Math.random() - 1.5));
+        }
+        var A2 = [
+          [0.8, 0.5],
+          [0.35, 0.9],
+        ];
+        var x1 = [],
+          x2 = [];
+        for (var i = 0; i < N2; i++) {
+          x1.push(A2[0][0] * s1[i] + A2[0][1] * s2[i]);
+          x2.push(A2[1][0] * s1[i] + A2[1][1] * s2[i]);
+        }
+        var mx =
+          x1.reduce(function (a, b) {
+            return a + b;
+          }, 0) / N2;
+        var my =
+          x2.reduce(function (a, b) {
+            return a + b;
+          }, 0) / N2;
+        var cx = x1.map(function (v) {
+          return v - mx;
+        });
+        var cy = x2.map(function (v) {
+          return v - my;
+        });
+        var c00 = 0,
+          c01 = 0,
+          c11 = 0;
+        for (var i = 0; i < N2; i++) {
+          c00 += cx[i] * cx[i];
+          c01 += cx[i] * cy[i];
+          c11 += cy[i] * cy[i];
+        }
+        c00 /= N2;
+        c01 /= N2;
+        c11 /= N2;
+        var tr = c00 + c11,
+          det = c00 * c11 - c01 * c01;
+        var disc = Math.sqrt(Math.max((tr * tr) / 4 - det, 0));
+        var l1 = tr / 2 + disc,
+          l2 = tr / 2 - disc;
+        var e1x = c01,
+          e1y = l1 - c00,
+          e2x = c01,
+          e2y = l2 - c00;
+        var n1 = Math.sqrt(e1x * e1x + e1y * e1y) || 1,
+          n2 = Math.sqrt(e2x * e2x + e2y * e2y) || 1;
+        e1x /= n1;
+        e1y /= n1;
+        e2x /= n2;
+        e2y /= n2;
+        var sv1 = 1 / Math.sqrt(Math.max(l1, 1e-8)),
+          sv2 = 1 / Math.sqrt(Math.max(l2, 1e-8));
+        zx2 = [];
+        zy2 = [];
+        for (var i = 0; i < N2; i++) {
+          zx2.push(sv1 * (e1x * cx[i] + e1y * cy[i]));
+          zy2.push(sv2 * (e2x * cx[i] + e2y * cy[i]));
+        }
+      }
+
+      function computeLandscape() {
+        var f = fns2[fn2];
+        var gaussRef = [];
+        for (var i = 0; i < N2; i++) {
+          var u = 0;
+          for (var j = 0; j < 12; j++) u += Math.random();
+          gaussRef.push(u - 6);
+        }
+        var egGauss =
+          gaussRef.reduce(function (a, v) {
+            return a + f.G(v);
+          }, 0) / N2;
+        landscape = [];
+        var bestJ = 0;
+        peakAng = 0;
+        for (var a = 0; a <= 180; a++) {
+          var rad = (a * Math.PI) / 180;
+          var w0 = Math.cos(rad),
+            w1 = Math.sin(rad);
+          var eg = 0;
+          for (var i = 0; i < N2; i++) {
+            eg += f.G(w0 * zx2[i] + w1 * zy2[i]);
+          }
+          eg /= N2;
+          var j = Math.pow(eg - egGauss, 2);
+          landscape.push(j);
+          if (j > bestJ) {
+            bestJ = j;
+            peakAng = a;
+          }
+        }
+      }
+
+      function drawLandscape(curAng) {
+        var cv = document.getElementById("neg-cvLand");
+        var ctx = cv.getContext("2d");
+        var W = cv.width,
+          H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        var pad = 32,
+          pw = W - 2 * pad,
+          ph = H - 2 * pad;
+        var maxJ = Math.max.apply(null, landscape) || 1;
+
+        ctx.strokeStyle = dk2 ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(pad, H - pad);
+        ctx.lineTo(W - pad, H - pad);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pad, pad);
+        ctx.lineTo(pad, H - pad);
+        ctx.stroke();
+
+        ctx.fillStyle = dk2 ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.5)";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("0\u00b0", pad - 4, H - pad + 14);
+        ctx.fillText("90\u00b0", pad + pw / 2 - 8, H - pad + 14);
+        ctx.fillText("180\u00b0", W - pad - 14, H - pad + 14);
+        ctx.save();
+        ctx.translate(pad - 16, pad + ph / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText("J(\u03b8)", 0, 0);
+        ctx.restore();
+
+        var f = fns2[fn2];
+        ctx.strokeStyle = f.col;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (var a = 0; a <= 180; a++) {
+          var x = pad + (a / 180) * pw;
+          var y = H - pad - (landscape[a] / maxJ) * ph * 0.9;
+          if (a === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        var peakX = pad + (peakAng / 180) * pw;
+        var peakY = H - pad - (landscape[peakAng] / maxJ) * ph * 0.9;
+        ctx.fillStyle = dk2 ? "rgba(93,202,165,0.7)" : "rgba(15,110,86,0.7)";
+        ctx.beginPath();
+        ctx.arc(peakX, peakY, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = dk2 ? "rgba(93,202,165,0.5)" : "rgba(15,110,86,0.5)";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("peak", peakX - 12, peakY - 10);
+
+        var curX = pad + (curAng / 180) * pw;
+        var curIdx = Math.min(180, Math.max(0, Math.round(curAng)));
+        var curY = H - pad - (landscape[curIdx] / maxJ) * ph * 0.9;
+        ctx.fillStyle = "#E24B4A";
+        ctx.beginPath();
+        ctx.arc(curX, curY, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = dk2 ? "rgba(226,75,74,0.3)" : "rgba(226,75,74,0.25)";
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(curX, curY);
+        ctx.lineTo(curX, H - pad);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawProjView(ang) {
+        var cv = document.getElementById("neg-cvProj");
+        var ctx = cv.getContext("2d");
+        var W = cv.width,
+          H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        var midY = H * 0.45;
+        var scatterH = midY - 16;
+        var histH = H - midY - 20;
+
+        ctx.strokeStyle = dk2 ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+        ctx.lineWidth = 0.5;
+        var cx = W / 2,
+          cy = scatterH / 2 + 8;
+        ctx.beginPath();
+        ctx.moveTo(cx, 8);
+        ctx.lineTo(cx, scatterH);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(16, cy);
+        ctx.lineTo(W - 16, cy);
+        ctx.stroke();
+
+        var sc = 80;
+        var ptCol = dk2 ? "rgba(175,169,236,0.3)" : "rgba(83,74,183,0.25)";
+        ctx.fillStyle = ptCol;
+        for (var i = 0; i < N2; i++) {
+          var px = cx + zx2[i] * sc,
+            py = cy - zy2[i] * sc;
+          if (px > 4 && px < W - 4 && py > 4 && py < scatterH - 4) {
+            ctx.beginPath();
+            ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        var rad = (ang * Math.PI) / 180;
+        var w0 = Math.cos(rad),
+          w1 = Math.sin(rad);
+        ctx.strokeStyle = "#E24B4A";
+        ctx.lineWidth = 2;
+        var len = 110;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        var ex = cx + w0 * len,
+          ey = cy - w1 * len;
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        var aa = Math.atan2(-w1, w0);
+        var ha = aa + Math.PI + 0.4,
+          hb = aa + Math.PI - 0.4;
+        ctx.beginPath();
+        ctx.moveTo(ex + Math.cos(ha) * 10, ey + Math.sin(ha) * 10);
+        ctx.lineTo(ex, ey);
+        ctx.lineTo(ex + Math.cos(hb) * 10, ey + Math.sin(hb) * 10);
+        ctx.stroke();
+        ctx.fillStyle = "#E24B4A";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("w", ex + 8, ey - 6);
+
+        var proj = [];
+        for (var i = 0; i < N2; i++) {
+          proj.push(w0 * zx2[i] + w1 * zy2[i]);
+        }
+        var bins = 32;
+        var mn = Math.min.apply(null, proj),
+          mx = Math.max.apply(null, proj);
+        var range = mx - mn || 1;
+        var counts = [];
+        for (var i = 0; i < bins; i++) counts.push(0);
+        for (var i = 0; i < proj.length; i++) {
+          var idx = Math.min(bins - 1, Math.floor(((proj[i] - mn) / range) * bins));
+          if (idx >= 0) counts[idx]++;
+        }
+        var maxC = Math.max.apply(null, counts) || 1;
+        var pad2 = 20;
+        var bw = (W - 2 * pad2) / bins;
+
+        ctx.fillStyle = dk2 ? "rgba(175,169,236,0.45)" : "rgba(83,74,183,0.35)";
+        for (var i = 0; i < bins; i++) {
+          var bh = (counts[i] / maxC) * histH * 0.8;
+          ctx.fillRect(pad2 + i * bw + 1, H - 10 - bh, bw - 2, bh);
+        }
+      }
+
+      function updateAngle() {
+        var a = parseFloat(document.getElementById("neg-ang2").value);
+        document.getElementById("neg-ang2-v").textContent = a + "\u00b0";
+        document.getElementById("neg-m2-ang").textContent = a + "\u00b0";
+        var idx = Math.min(180, Math.max(0, Math.round(a)));
+        document.getElementById("neg-m2-j").textContent = landscape[idx].toFixed(6);
+        document.getElementById("neg-m2-peak").textContent = peakAng + "\u00b0";
+        drawLandscape(a);
+        drawProjView(a);
+      }
+
+      var widgetEl = document.getElementById("widget-negentropy");
+
+      widgetEl._animateSweep = function () {
+        if (anim2) {
+          clearInterval(anim2);
+          anim2 = null;
+        }
+        var a = 0;
+        var sl = document.getElementById("neg-ang2");
+        anim2 = setInterval(function () {
+          a += 1;
+          if (a > 180) {
+            clearInterval(anim2);
+            anim2 = null;
+            return;
+          }
+          sl.value = a;
+          updateAngle();
+        }, 30);
+      };
+
+      widgetEl._animateFastICA = function () {
+        if (anim2) {
+          clearInterval(anim2);
+          anim2 = null;
+        }
+        var f = fns2[fn2];
+        var ang = parseFloat(document.getElementById("neg-ang2").value);
+        var rad = (ang * Math.PI) / 180;
+        var w = [Math.cos(rad), Math.sin(rad)];
+        var sl = document.getElementById("neg-ang2");
+
+        anim2 = setInterval(function () {
+          var g0 = 0,
+            g1 = 0,
+            gp = 0;
+          for (var i = 0; i < N2; i++) {
+            var u = w[0] * zx2[i] + w[1] * zy2[i];
+            var gv = f.g(u);
+            g0 += zx2[i] * gv;
+            g1 += zy2[i] * gv;
+            gp += f.gp(u);
+          }
+          g0 /= N2;
+          g1 /= N2;
+          gp /= N2;
+          var nw = [g0 - gp * w[0], g1 - gp * w[1]];
+          var nm = Math.sqrt(nw[0] * nw[0] + nw[1] * nw[1]) || 1;
+          nw[0] /= nm;
+          nw[1] /= nm;
+          var dot = Math.abs(nw[0] * w[0] + nw[1] * w[1]);
+          w[0] = nw[0];
+          w[1] = nw[1];
+          var a2 = (Math.atan2(w[1], w[0]) * 180) / Math.PI;
+          if (a2 < 0) a2 += 180;
+          sl.value = Math.round(a2);
+          updateAngle();
+          if (dot > 0.99999) {
+            clearInterval(anim2);
+            anim2 = null;
+            document.getElementById("neg-expl2").textContent =
+              "Converged! FastICA climbed the negentropy landscape to angle " +
+              Math.round(a2) +
+              "\u00b0, which is a peak of J(\u03b8). This direction recovers one of the independent sources.";
+          }
+        }, 300);
+      };
+
+      widgetEl._resetData2 = function () {
+        if (anim2) {
+          clearInterval(anim2);
+          anim2 = null;
+        }
+        genData2();
+        computeLandscape();
+        document.getElementById("neg-ang2").value = 0;
+        document.getElementById("neg-expl2").textContent = "";
+        updateAngle();
+      };
+
+      function renderFnSel2() {
+        var el = document.getElementById("neg-fsel2");
+        el.innerHTML = "";
+        var names = { logcosh: "logcosh / tanh", cube: "cube / u\u00b3", gauss: "exp / Gauss" };
+        var keys = ["logcosh", "cube", "gauss"];
+        keys.forEach(function (k) {
+          var b = document.createElement("button");
+          b.className = "fn-btn" + (k === fn2 ? " on" : "");
+          b.textContent = names[k];
+          b.onclick = function () {
+            fn2 = k;
+            computeLandscape();
+            updateAngle();
+            renderFnSel2();
+          };
+          el.appendChild(b);
+        });
+      }
+
+      document.getElementById("neg-ang2").addEventListener("input", updateAngle);
+
+      genData2();
+      computeLandscape();
+      renderFnSel2();
+      updateAngle();
+    })();
+  </script>
+</div>
+
+<h2 id="the-fastica-algorithm">The FastICA Algorithm</h2>
+
+<p>FastICA operates in three stages: centering, whitening, and fixed-point iteration.</p>
+
+<p>
+  <strong>Centering</strong> subtracts the sample mean to obtain $\tilde{\mathbf{x}} = \mathbf{x} - E\{\mathbf{x}\}$, so that $E\{\tilde{\mathbf{x}}\}
+  = 0$. This simplifies subsequent computations without altering the mixing structure.
+</p>
+
+<p>
+  <strong>Whitening</strong> transforms the centered data to have identity covariance: $\mathbf{z} = V\tilde{\mathbf{x}}$, where $V = D^{-1/2}E^T$ and
+  $C_{\mathbf{x}} = EDE^T$ is the eigendecomposition of the covariance matrix. After whitening, $E\{\mathbf{z}\mathbf{z}^T\} = I$, and the effective
+  mixing matrix $\tilde{A} = VA$ becomes orthogonal. This is the key insight: whitening reduces the search from an arbitrary invertible matrix to an
+  orthogonal rotation.
+</p>
+
+<p><strong>The fixed-point update</strong> finds each unmixing direction $\mathbf{w}_i$ by iterating</p>
+
+$$\mathbf{w}^{+} = E\bigl\{\mathbf{z}\cdot g(\mathbf{w}^T\mathbf{z})\bigr\} - E\bigl\{g'(\mathbf{w}^T\mathbf{z})\bigr\}\cdot\mathbf{w}$$
+
+<p>
+  followed by normalization $\mathbf{w} \leftarrow \mathbf{w}^{+} / \|\mathbf{w}^{+}\|$. Here $g = G'$ is the derivative of the contrast function. The
+  second term $E\{g'(\mathbf{w}^T\mathbf{z})\}\cdot\mathbf{w}$ provides Newton-like stabilization.
+</p>
+
+<p>
+  The diagram below tracks the matrix dimensions throughout the pipeline. We assume the square case ($n$ sensors for $n$ sources), so every transform
+  matrix is $(n \times n)$ and every data matrix is $(n \times T)$.
+</p>
+
+<div class="ica-widget" id="widget-dimensions">
+  <style>
+    #widget-dimensions .eq-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 14px 0;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--color-text-primary);
+    }
+    #widget-dimensions .mat {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    #widget-dimensions .mat-box {
+      border: 0.5px solid var(--color-border-secondary);
+      border-radius: var(--border-radius-md);
+      padding: 6px 14px;
+      font-weight: 500;
+      min-width: 48px;
+      text-align: center;
+      font-size: 14px;
+    }
+    #widget-dimensions .mat-dim {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    #widget-dimensions .mat-name {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      font-weight: 400;
+      margin-top: 1px;
+    }
+    #widget-dimensions .op {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+      padding: 0 2px;
+    }
+    #widget-dimensions .sec {
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin: 24px 0 4px;
+      padding-bottom: 4px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+    }
+    #widget-dimensions .note {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+      line-height: 1.7;
+      margin: 4px 0 0;
+    }
+    #widget-dimensions .c-src .mat-box {
+      background: #e1f5ee;
+      color: #085041;
+      border-color: #5dcaa5;
+    }
+    #widget-dimensions .c-mix .mat-box {
+      background: #faeeda;
+      color: #633806;
+      border-color: #ef9f27;
+    }
+    #widget-dimensions .c-obs .mat-box {
+      background: #f1efe8;
+      color: #444441;
+      border-color: #b4b2a9;
+    }
+    #widget-dimensions .c-whi .mat-box {
+      background: #eeedfe;
+      color: #3c3489;
+      border-color: #afa9ec;
+    }
+    #widget-dimensions .c-unmix .mat-box {
+      background: #e6f1fb;
+      color: #0c447c;
+      border-color: #85b7eb;
+    }
+    #widget-dimensions .c-rec .mat-box {
+      background: #faece7;
+      color: #712b13;
+      border-color: #f0997b;
+    }
+    #widget-dimensions .obj-box {
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      padding: 12px 16px;
+      margin: 10px 0;
+      border-left: 3px solid #534ab7;
+    }
+    #widget-dimensions .obj-box .obj-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin-bottom: 6px;
+    }
+    #widget-dimensions .obj-box .obj-eq {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--color-text-primary);
+      line-height: 2;
+    }
+    #widget-dimensions .obj-box .obj-note {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin-top: 6px;
+      line-height: 1.6;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <div class="sec">Model: x = A s</div>
+    <div class="eq-row">
+      <div class="mat c-obs">
+        <div class="mat-box">x</div>
+        <div class="mat-dim">(n × T)</div>
+        <div class="mat-name">observed</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-mix">
+        <div class="mat-box">A</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">mixing</div>
+      </div>
+      <div class="op">·</div>
+      <div class="mat c-src">
+        <div class="mat-box">s</div>
+        <div class="mat-dim">(n × T)</div>
+        <div class="mat-name">sources</div>
+      </div>
+    </div>
+    <div class="note">
+      Each column of s is one time sample of all n sources. Each column of x is one time sample of all n sensors. A is square and invertible.
+    </div>
+
+    <div class="sec">Step 1: centering</div>
+    <div class="eq-row">
+      <div class="mat c-obs">
+        <div class="mat-box">x&#771;</div>
+        <div class="mat-dim">(n × T)</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-obs">
+        <div class="mat-box">x</div>
+        <div class="mat-dim">(n × T)</div>
+      </div>
+      <div class="op">-</div>
+      <div class="mat c-obs">
+        <div class="mat-box">E{x}</div>
+        <div class="mat-dim">(n × 1)</div>
+      </div>
+    </div>
+    <div class="note">Subtract the mean vector (broadcast across T columns). Now E{x&#771;} = 0.</div>
+
+    <div class="sec">Step 2: whitening via eigendecomposition</div>
+    <div class="eq-row">
+      <div class="mat c-obs">
+        <div class="mat-box">C&#8339;</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">covariance</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-obs">
+        <div class="mat-box">E</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">eigenvecs</div>
+      </div>
+      <div class="mat c-obs">
+        <div class="mat-box">D</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">eigenvals diag</div>
+      </div>
+      <div class="mat c-obs">
+        <div class="mat-box">E&#7488;</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+    </div>
+    <div class="eq-row">
+      <div class="mat c-whi">
+        <div class="mat-box">V</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">whitening</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-obs">
+        <div class="mat-box">D&#8315;&#189;</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+      <div class="op">·</div>
+      <div class="mat c-obs">
+        <div class="mat-box">E&#7488;</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+    </div>
+    <div class="eq-row">
+      <div class="mat c-whi">
+        <div class="mat-box">z</div>
+        <div class="mat-dim">(n × T)</div>
+        <div class="mat-name">whitened</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-whi">
+        <div class="mat-box">V</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+      <div class="op">·</div>
+      <div class="mat c-obs">
+        <div class="mat-box">x&#771;</div>
+        <div class="mat-dim">(n × T)</div>
+      </div>
+    </div>
+    <div class="note">After whitening: E{zz&#7488;} = I (n × n identity). The effective mixing A&#771; = VA is now orthogonal (n × n).</div>
+
+    <div class="sec">Step 3: FastICA fixed-point iteration (per component)</div>
+
+    <div class="obj-box">
+      <div class="obj-title">Optimization objective</div>
+      <div class="obj-eq">max<sub style="font-size: 16px">w</sub> J(w) = [E{G(w&#7488;z)} - E{G(v)}]²</div>
+      <div class="obj-eq" style="font-size: 16px; color: var(--color-text-secondary)">
+        subject to: ||w|| = 1 &nbsp;and&nbsp; w ⊥ w₁, ..., w<sub>i-1</sub>
+      </div>
+      <div class="obj-note">
+        J(w) is the negentropy approximation. G is a smooth nonlinear function (e.g. log cosh), v ~ N(0,1) is a Gaussian reference. Maximizing J finds
+        the direction where w&#7488;z is most non-Gaussian, which corresponds to an independent source. The unit-norm constraint keeps w on the unit
+        sphere; the orthogonality constraint (via deflation) prevents rediscovering the same source.
+      </div>
+    </div>
+
+    <div style="font-size: 16px; color: var(--color-text-secondary); margin: 10px 0 4px">
+      The fixed-point update solves this optimization via a Newton-like iteration:
+    </div>
+
+    <div class="eq-row">
+      <div class="mat c-unmix">
+        <div class="mat-box">w&#7522;</div>
+        <div class="mat-dim">(n × 1)</div>
+        <div class="mat-name">one direction</div>
+      </div>
+      <div class="op">&#8592;</div>
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-weight: 400; font-size: 16px">
+          E{z · g(w&#7522;&#7488;z)} - E{g'(w&#7522;&#7488;z)} · w&#7522;
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-bottom: 4px">Inside the update, dimension by dimension:</div>
+    <div class="eq-row" style="margin: 4px 0">
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-size: 14px; padding: 4px 10px">
+          w&#7522;&#7488;z
+        </div>
+        <div class="mat-dim">(1 × n)(n × T) = (1 × T)</div>
+      </div>
+      <div class="op" style="font-size: 16px">&#8594;</div>
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-size: 14px; padding: 4px 10px">
+          g(w&#7522;&#7488;z)
+        </div>
+        <div class="mat-dim">(1 × T) elementwise</div>
+      </div>
+    </div>
+    <div class="eq-row" style="margin: 4px 0">
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-size: 14px; padding: 4px 10px">
+          E{z · g(w&#7522;&#7488;z)}
+        </div>
+        <div class="mat-dim">(n × T)(T × 1) / T = (n × 1)</div>
+      </div>
+      <div class="op" style="font-size: 16px">&#8594;</div>
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-size: 14px; padding: 4px 10px">
+          E{g'(w&#7522;&#7488;z)}
+        </div>
+        <div class="mat-dim">scalar (1 × 1)</div>
+      </div>
+    </div>
+    <div class="note">
+      The update produces a new (n × 1) vector, which is normalized to unit length. Then Gram-Schmidt against previously found
+      w&#8321;,...,w&#7522;&#8331;&#8321;.
+    </div>
+
+    <div class="sec">Step 4: assemble unmixing matrix</div>
+    <div class="eq-row">
+      <div class="mat c-unmix">
+        <div class="mat-box">W&#771;</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">unmixing (whitened)</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat">
+        <div class="mat-box" style="border: 0.5px solid var(--color-border-tertiary); background: transparent; font-size: 16px">
+          [w&#8321;, w&#8322;, ..., w&#8345;]&#7488;
+        </div>
+        <div class="mat-dim">stack n vectors of (n × 1) as rows</div>
+      </div>
+    </div>
+    <div class="note">W&#771; is orthogonal (W&#771;W&#771;&#7488; = I) because all w&#7522; are orthonormal in whitened space.</div>
+    <div class="eq-row">
+      <div class="mat c-unmix">
+        <div class="mat-box">W</div>
+        <div class="mat-dim">(n × n)</div>
+        <div class="mat-name">full unmixing</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-unmix">
+        <div class="mat-box">W&#771;</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+      <div class="op">·</div>
+      <div class="mat c-whi">
+        <div class="mat-box">V</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+    </div>
+    <div class="note">W = W&#771; · V combines whitening + rotation. W is generally NOT orthogonal (unlike W&#771;).</div>
+
+    <div class="sec">Step 5: recover sources</div>
+    <div class="eq-row">
+      <div class="mat c-rec">
+        <div class="mat-box">s&#770;</div>
+        <div class="mat-dim">(n × T)</div>
+        <div class="mat-name">recovered</div>
+      </div>
+      <div class="op">=</div>
+      <div class="mat c-unmix">
+        <div class="mat-box">W</div>
+        <div class="mat-dim">(n × n)</div>
+      </div>
+      <div class="op">·</div>
+      <div class="mat c-obs">
+        <div class="mat-box">x&#771;</div>
+        <div class="mat-dim">(n × T)</div>
+      </div>
+    </div>
+    <div class="note">
+      Equivalently: s&#770; = W&#771; · z. Each row of s&#770; is one recovered independent component across T time points. Ideally W ≈ A⁻¹ up to
+      permutation and scaling.
+    </div>
+
+    <div style="margin-top: 20px; padding: 10px 14px; background: var(--color-background-secondary); border-radius: var(--border-radius-md)">
+      <div style="font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 6px">Dimension summary</div>
+      <div style="font-size: 14px; color: var(--color-text-secondary); line-height: 2; font-family: var(--font-mono)">
+        n = number of sources = number of sensors<br />
+        T = number of time samples (T >> n typically)<br />
+        s, x, x&#771;, z, s&#770; : (n × T) — signal matrices<br />
+        A, C&#8339;, E, D, V, W&#771;, W : (n × n) — square transforms<br />
+        w&#7522; : (n × 1) — single unmixing direction<br />
+        w&#7522;&#7488;z : (1 × T) — projection of all samples onto w&#7522;
+      </div>
+    </div>
+  </div>
+</div>
+
+<p>
+  A few remarks on computational cost. Inside the fixed-point update, $\mathbf{w}_i^T\mathbf{z}$ produces a $(1 \times T)$ vector — the projection of
+  all $T$ samples onto the current direction. The function $g(\cdot)$ is applied elementwise and is therefore $O(T)$ per iteration. The expectation
+  $E\{\mathbf{z}\cdot g(\mathbf{w}_i^T\mathbf{z})\}$ is a matrix-vector product $(n \times T)\cdot(T \times 1)/T$, yielding the new $(n \times 1)$
+  direction.
+</p>
+
+<p>
+  The interactive demonstration at the end of the next section walks through the complete FastICA pipeline — from raw sources through centering,
+  whitening, and fixed-point iteration to the recovered independent components.
+</p>
+
+<h2 id="deflation">Deflation: Extracting Multiple Components</h2>
+
+<p>
+  After finding $\mathbf{w}_1$, how is $\mathbf{w}_2$ determined? Running the same fixed-point iteration with a different random initialization will,
+  in general, converge to the same peak — both directions find the strongest non-Gaussian projection. The solution is
+  <em>deflationary Gram-Schmidt orthogonalization</em>. After each fixed-point update of $\mathbf{w}_2$, we subtract its projection onto
+  $\mathbf{w}_1$ and renormalize:
+</p>
+
+$$\mathbf{w}_2 \leftarrow \mathbf{w}_2 - (\mathbf{w}_2^T\mathbf{w}_1)\,\mathbf{w}_1, \qquad \mathbf{w}_2 \leftarrow
+\frac{\mathbf{w}_2}{\|\mathbf{w}_2\|}$$
+
+<p>
+  This orthogonality constraint is valid in the whitened space because whitening makes the effective mixing matrix orthogonal: $\tilde{A}^T\tilde{A} =
+  I$. The true unmixing directions in whitened space are therefore orthonormal.
+</p>
+
+<p>
+  An important distinction follows. The directions $\mathbf{w}_1$ and $\mathbf{w}_2$ are orthogonal
+  <em>in the whitened space</em>, but the full unmixing vectors $W_1$ and $W_2$ in the original observation space are generally
+  <em>not</em> orthogonal. Unlike PCA, ICA components are statistically independent but not geometrically orthogonal.
+</p>
+
+<p>
+  The visualization below demonstrates the complete FastICA pipeline, including deflation. Click through all eight phases: from the original sources,
+  through preprocessing, to finding both unmixing directions and recovering the independent components. In particular, observe how naive iteration for
+  $\mathbf{w}_2$ (phase 6) converges to the same direction as $\mathbf{w}_1$, and how Gram-Schmidt orthogonalization (phase 7) forces it to the
+  orthogonal complement.
+</p>
+
+<div class="ica-widget" id="widget-merged">
+  <style>
+    /* Poppins loaded by site theme */
+
+    #widget-merged {
+      /* Inherits container styling from .ica-widget */
+      --color-background-secondary: #f4f3ee;
+      font-family: "Poppins", sans-serif;
+      color: var(--color-text-primary);
+    }
+
+    #widget-merged *,
+    #widget-merged *::before,
+    #widget-merged *::after {
+      box-sizing: border-box;
+    }
+
+    #merged-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 18px;
+    }
+
+    #merged-pills button {
+      font-family: "Poppins", sans-serif;
+      font-size: 12px;
+      padding: 4px 12px;
+      border: 1px solid var(--color-border-info);
+      border-radius: 20px;
+      background: var(--color-background-info);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    #merged-pills button:hover {
+      background: var(--color-background-secondary);
+    }
+
+    #merged-pills button.active {
+      background: #6a9bcc;
+      color: #fff;
+      border-color: #6a9bcc;
+    }
+
+    #merged-pills button.completed {
+      background: #e8f5e9;
+      color: #0f6e56;
+      border-color: #0f6e56;
+    }
+
+    #merged-canvas-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 6px;
+    }
+
+    #merged-canvas-row canvas {
+      border: 1px solid var(--color-border-info);
+      border-radius: var(--border-radius-md);
+      background: var(--color-background-info);
+    }
+
+    #merged-labels-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    #merged-labels-row .canvas-label {
+      width: 340px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      font-weight: 500;
+    }
+
+    #merged-formula {
+      background: var(--color-background-secondary);
+      border: 1px solid var(--color-border-info);
+      border-radius: var(--border-radius-md);
+      padding: 10px 16px;
+      margin-bottom: 14px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--color-text-primary);
+      text-align: center;
+      line-height: 1.6;
+      min-height: 38px;
+    }
+
+    #merged-metrics {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    #merged-metrics .metric-card {
+      background: var(--color-background-secondary);
+      border: 1px solid var(--color-border-info);
+      border-radius: var(--border-radius-md);
+      padding: 8px 16px;
+      text-align: center;
+      min-width: 120px;
+    }
+
+    #merged-metrics .metric-card .metric-label {
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+
+    #merged-metrics .metric-card .metric-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      font-family: var(--font-mono);
+    }
+
+    #merged-status {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      text-align: center;
+      margin-bottom: 14px;
+      min-height: 22px;
+    }
+
+    #merged-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    #merged-buttons button {
+      font-family: "Poppins", sans-serif;
+      font-size: 14px;
+      padding: 6px 16px;
+      border: 1px solid var(--color-border-info);
+      border-radius: var(--border-radius-md);
+      background: var(--color-background-info);
+      color: var(--color-text-primary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    #merged-buttons button:hover {
+      background: var(--color-background-secondary);
+    }
+
+    #merged-buttons button.primary {
+      background: #6a9bcc;
+      color: #fff;
+      border-color: #6a9bcc;
+    }
+
+    #merged-buttons button.primary:hover {
+      background: #5a8bbc;
+      border-color: #5a8bbc;
+    }
+
+    #merged-buttons button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  </style>
+
+  <div id="merged-pills"></div>
+
+  <div id="merged-canvas-row">
+    <canvas id="merged-cv1" width="340" height="340"></canvas>
+    <canvas id="merged-cv2" width="340" height="340"></canvas>
+  </div>
+
+  <div id="merged-labels-row">
+    <div class="canvas-label" id="merged-label1"></div>
+    <div class="canvas-label" id="merged-label2"></div>
+  </div>
+
+  <div id="merged-formula"></div>
+
+  <div id="merged-metrics"></div>
+
+  <div id="merged-status"></div>
+
+  <div id="merged-buttons">
+    <button class="primary" onclick="document.getElementById('widget-merged')._runPhase()">Next step</button>
+    <button onclick="document.getElementById('widget-merged')._resetAll()">Reset with new data</button>
+    <button onclick="document.getElementById('widget-merged')._autoRun()">Auto-play all</button>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var el = document.getElementById("widget-merged");
+      var cv1 = document.getElementById("merged-cv1");
+      var cv2 = document.getElementById("merged-cv2");
+      var ctx1 = cv1.getContext("2d");
+      var ctx2 = cv2.getContext("2d");
+      var pillsEl = document.getElementById("merged-pills");
+      var label1El = document.getElementById("merged-label1");
+      var label2El = document.getElementById("merged-label2");
+      var formulaEl = document.getElementById("merged-formula");
+      var metricsEl = document.getElementById("merged-metrics");
+      var statusEl = document.getElementById("merged-status");
+
+      var CW = 340,
+        CH = 340;
+      var N = 600;
+      var FONT_LABEL = '14px "Poppins",sans-serif';
+      var FONT_SMALL = '14px "Poppins",sans-serif';
+      var FONT_TINY = '14px "Poppins",sans-serif';
+
+      var phaseNames = [
+        "Original sources",
+        "Observed mixture",
+        "Centering",
+        "Whitening",
+        "Find w\u2081",
+        "Find w\u2082 (naive)",
+        "Gram-Schmidt fix",
+        "Recovered",
+      ];
+
+      // State
+      var currentPhase = -1;
+      var completedPhases = [];
+      var autoPlaying = false;
+      var autoTimer = null;
+
+      // Data
+      var s1, s2, A;
+      var x1, x2, cx, cy, zx, zy;
+      var meanX, meanY;
+      var whitenMatrix; // 2x2
+
+      // ICA state
+      var w1, w1Trail, w1Converged, w1Iter;
+      var w2naive, w2naiveTrail, w2naiveConverged, w2naiveIter;
+      var w2defl, w2deflTrail, w2deflConverged, w2deflIter;
+      var w1Done, w2naiveDone, w2deflDone;
+
+      // Sub-step tracking for iterative phases
+      var phaseSubStep; // for phases 4,5,6: counts iterations within the phase
+
+      // Build pills
+      function buildPills() {
+        pillsEl.innerHTML = "";
+        for (var i = 0; i < phaseNames.length; i++) {
+          var btn = document.createElement("button");
+          btn.textContent = phaseNames[i];
+          btn.setAttribute("data-phase", i);
+          if (i === currentPhase) btn.className = "active";
+          else if (completedPhases.indexOf(i) >= 0) btn.className = "completed";
+          pillsEl.appendChild(btn);
+        }
+      }
+
+      // -- Data generation --
+      function generateData() {
+        s1 = [];
+        s2 = [];
+        for (var i = 0; i < N; i++) {
+          s1.push(Math.random() * 2 - 1);
+          s2.push(Math.random() * 2 - 1);
+        }
+
+        // Random mixing matrix with values ~0.3-1.0
+        function rv() {
+          return 0.3 + Math.random() * 0.7;
+        }
+        var sign = function () {
+          return Math.random() < 0.5 ? -1 : 1;
+        };
+        A = [
+          [rv() * sign(), rv() * sign()],
+          [rv() * sign(), rv() * sign()],
+        ];
+        // Ensure non-degenerate (det != ~0)
+        var det = A[0][0] * A[1][1] - A[0][1] * A[1][0];
+        while (Math.abs(det) < 0.15) {
+          A = [
+            [rv() * sign(), rv() * sign()],
+            [rv() * sign(), rv() * sign()],
+          ];
+          det = A[0][0] * A[1][1] - A[0][1] * A[1][0];
+        }
+
+        // Mix
+        x1 = [];
+        x2 = [];
+        for (var i = 0; i < N; i++) {
+          x1.push(A[0][0] * s1[i] + A[0][1] * s2[i]);
+          x2.push(A[1][0] * s1[i] + A[1][1] * s2[i]);
+        }
+
+        // Center
+        meanX = mean(x1);
+        meanY = mean(x2);
+        cx = [];
+        cy = [];
+        for (var i = 0; i < N; i++) {
+          cx.push(x1[i] - meanX);
+          cy.push(x2[i] - meanY);
+        }
+
+        // Whiten
+        whiten();
+
+        // Reset ICA state
+        resetICA();
+      }
+
+      function mean(arr) {
+        var s = 0;
+        for (var i = 0; i < arr.length; i++) s += arr[i];
+        return s / arr.length;
+      }
+
+      function whiten() {
+        // Covariance
+        var c00 = 0,
+          c01 = 0,
+          c11 = 0;
+        for (var i = 0; i < N; i++) {
+          c00 += cx[i] * cx[i];
+          c01 += cx[i] * cy[i];
+          c11 += cy[i] * cy[i];
+        }
+        c00 /= N;
+        c01 /= N;
+        c11 /= N;
+
+        // 2x2 eigendecomposition
+        var trace = c00 + c11;
+        var det = c00 * c11 - c01 * c01;
+        var disc = Math.sqrt(Math.max(0, (trace * trace) / 4 - det));
+        var l1 = trace / 2 + disc;
+        var l2 = trace / 2 - disc;
+        if (l2 < 1e-10) l2 = 1e-10;
+
+        // Eigenvectors
+        var e1, e2;
+        if (Math.abs(c01) > 1e-10) {
+          e1 = [l1 - c11, c01];
+          e2 = [l2 - c11, c01];
+        } else {
+          e1 = [1, 0];
+          e2 = [0, 1];
+          if (c11 > c00) {
+            e1 = [0, 1];
+            e2 = [1, 0];
+            var tmp = l1;
+            l1 = l2;
+            l2 = tmp;
+          }
+        }
+        // Normalize eigenvectors
+        var n1 = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1]);
+        var n2 = Math.sqrt(e2[0] * e2[0] + e2[1] * e2[1]);
+        e1 = [e1[0] / n1, e1[1] / n1];
+        e2 = [e2[0] / n2, e2[1] / n2];
+
+        // Whitening: V = D^{-1/2} E^T
+        var d1 = 1 / Math.sqrt(l1),
+          d2 = 1 / Math.sqrt(l2);
+        // E = [e1 e2] as columns, E^T rows
+        // V = [[d1*e1[0], d1*e1[1]], [d2*e2[0], d2*e2[1]]]
+        whitenMatrix = [
+          [d1 * e1[0], d1 * e1[1]],
+          [d2 * e2[0], d2 * e2[1]],
+        ];
+
+        zx = [];
+        zy = [];
+        for (var i = 0; i < N; i++) {
+          zx.push(whitenMatrix[0][0] * cx[i] + whitenMatrix[0][1] * cy[i]);
+          zy.push(whitenMatrix[1][0] * cx[i] + whitenMatrix[1][1] * cy[i]);
+        }
+      }
+
+      function resetICA() {
+        // w1 init: random unit vector
+        var a = Math.random() * Math.PI * 2;
+        w1 = [Math.cos(a), Math.sin(a)];
+        w1Trail = [[w1[0], w1[1]]];
+        w1Converged = false;
+        w1Iter = 0;
+        w1Done = false;
+
+        // w2 naive: init close to w1 direction to show convergence issue
+        var b = a + (Math.random() * 0.4 - 0.2 + Math.PI * 0.15);
+        w2naive = [Math.cos(b), Math.sin(b)];
+        w2naiveTrail = [[w2naive[0], w2naive[1]]];
+        w2naiveConverged = false;
+        w2naiveIter = 0;
+        w2naiveDone = false;
+
+        // w2 deflated
+        var c = a + Math.PI * 0.3 + Math.random() * 0.3;
+        w2defl = [Math.cos(c), Math.sin(c)];
+        w2deflTrail = [[w2defl[0], w2defl[1]]];
+        w2deflConverged = false;
+        w2deflIter = 0;
+        w2deflDone = false;
+
+        phaseSubStep = 0;
+      }
+
+      function normalize(w) {
+        var n = Math.sqrt(w[0] * w[0] + w[1] * w[1]);
+        if (n < 1e-12) n = 1e-12;
+        w[0] /= n;
+        w[1] /= n;
+        return w;
+      }
+
+      function icaStep(w) {
+        var g0 = 0,
+          g1 = 0,
+          gp = 0;
+        for (var i = 0; i < N; i++) {
+          var u = w[0] * zx[i] + w[1] * zy[i];
+          var th = Math.tanh(u);
+          g0 += zx[i] * th;
+          g1 += zy[i] * th;
+          gp += 1 - th * th;
+        }
+        g0 /= N;
+        g1 /= N;
+        gp /= N;
+        var nw = [g0 - gp * w[0], g1 - gp * w[1]];
+        normalize(nw);
+        return nw;
+      }
+
+      function dotProduct(a, b) {
+        return a[0] * b[0] + a[1] * b[1];
+      }
+
+      function angleBetween(a, b) {
+        var d = Math.abs(dotProduct(a, b));
+        if (d > 1) d = 1;
+        return (Math.acos(d) * 180) / Math.PI;
+      }
+
+      function hasConverged(wOld, wNew) {
+        var d = Math.abs(dotProduct(wOld, wNew));
+        return d > 0.99999;
+      }
+
+      // --- Drawing utilities ---
+      function clearCanvas(ctx) {
+        ctx.fillStyle = "#faf9f5";
+        ctx.fillRect(0, 0, CW, CH);
+      }
+
+      function getRange(arr1, arr2) {
+        var mn = Infinity,
+          mx = -Infinity;
+        for (var i = 0; i < arr1.length; i++) {
+          if (arr1[i] < mn) mn = arr1[i];
+          if (arr1[i] > mx) mx = arr1[i];
+          if (arr2[i] < mn) mn = arr2[i];
+          if (arr2[i] > mx) mx = arr2[i];
+        }
+        var pad = (mx - mn) * 0.12;
+        return { min: mn - pad, max: mx + pad };
+      }
+
+      function toCanvasX(v, range) {
+        return 40 + ((v - range.min) / (range.max - range.min)) * (CW - 60);
+      }
+      function toCanvasY(v, range) {
+        return CH - 40 - ((v - range.min) / (range.max - range.min)) * (CH - 60);
+      }
+
+      function drawAxes(ctx, range, xlabel, ylabel) {
+        ctx.strokeStyle = "rgba(0,0,0,0.07)";
+        ctx.lineWidth = 1;
+
+        // Grid lines
+        var steps = 5;
+        var step = (range.max - range.min) / steps;
+        for (var i = 0; i <= steps; i++) {
+          var v = range.min + i * step;
+          var x = toCanvasX(v, range);
+          var y = toCanvasY(v, range);
+          ctx.beginPath();
+          ctx.moveTo(x, 20);
+          ctx.lineTo(x, CH - 20);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(20, y);
+          ctx.lineTo(CW - 20, y);
+          ctx.stroke();
+        }
+
+        // Zero lines (thicker)
+        if (range.min < 0 && range.max > 0) {
+          ctx.strokeStyle = "rgba(0,0,0,0.15)";
+          ctx.lineWidth = 1;
+          var zx0 = toCanvasX(0, range);
+          var zy0 = toCanvasY(0, range);
+          ctx.beginPath();
+          ctx.moveTo(zx0, 20);
+          ctx.lineTo(zx0, CH - 20);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(20, zy0);
+          ctx.lineTo(CW - 20, zy0);
+          ctx.stroke();
+        }
+
+        // Labels
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.font = FONT_LABEL;
+        ctx.textAlign = "center";
+        if (xlabel) ctx.fillText(xlabel, CW / 2, CH - 4);
+        if (ylabel) {
+          ctx.save();
+          ctx.translate(12, CH / 2);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillText(ylabel, 0, 0);
+          ctx.restore();
+        }
+      }
+
+      function drawScatter(ctx, px, py, color, range) {
+        ctx.fillStyle = color;
+        for (var i = 0; i < px.length; i++) {
+          var x = toCanvasX(px[i], range);
+          var y = toCanvasY(py[i], range);
+          ctx.beginPath();
+          ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function drawArrow(ctx, ox, oy, dx, dy, color, lineWidth, range) {
+        var x0 = toCanvasX(ox, range);
+        var y0 = toCanvasY(oy, range);
+        var scale = (CW - 60) / (range.max - range.min);
+        var x1 = x0 + dx * scale * 0.85;
+        var y1 = y0 - dy * scale * 0.85;
+
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+
+        // Arrowhead
+        var angle = Math.atan2(-(y1 - y0), x1 - x0);
+        var hl = 10;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x1 - hl * Math.cos(angle - 0.35), y1 + hl * Math.sin(angle - 0.35));
+        ctx.lineTo(x1 - hl * Math.cos(angle + 0.35), y1 + hl * Math.sin(angle + 0.35));
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawTrail(ctx, trail, color, range) {
+        for (var i = 0; i < trail.length - 1; i++) {
+          var alpha = 0.1 + 0.4 * (i / Math.max(1, trail.length - 1));
+          var c = color.replace("1)", alpha + ")").replace("rgb", "rgba");
+          if (color.indexOf("rgba") === -1 && color.indexOf("rgb") === -1) {
+            // hex color - convert
+            c = hexToRGBA(color, alpha);
+          }
+          drawArrow(ctx, 0, 0, trail[i][0], trail[i][1], c, 1.5, range);
+        }
+      }
+
+      function hexToRGBA(hex, alpha) {
+        var r = parseInt(hex.slice(1, 3), 16);
+        var g = parseInt(hex.slice(3, 5), 16);
+        var b = parseInt(hex.slice(5, 7), 16);
+        return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+      }
+
+      function drawUnitCircle(ctx, range) {
+        var cx0 = toCanvasX(0, range);
+        var cy0 = toCanvasY(0, range);
+        var scale = (CW - 60) / (range.max - range.min);
+        ctx.strokeStyle = "rgba(0,0,0,0.12)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, scale, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Histogram
+      function drawHist(ctx, proj, label) {
+        clearCanvas(ctx);
+        var bins = 30;
+        var mn = Infinity,
+          mx = -Infinity;
+        for (var i = 0; i < proj.length; i++) {
+          if (proj[i] < mn) mn = proj[i];
+          if (proj[i] > mx) mx = proj[i];
+        }
+        var pad = (mx - mn) * 0.05;
+        mn -= pad;
+        mx += pad;
+        var bw = (mx - mn) / bins;
+        var counts = [];
+        for (var i = 0; i < bins; i++) counts.push(0);
+        for (var i = 0; i < proj.length; i++) {
+          var bi = Math.floor((proj[i] - mn) / bw);
+          if (bi >= bins) bi = bins - 1;
+          if (bi < 0) bi = 0;
+          counts[bi]++;
+        }
+
+        var maxCount = 0;
+        for (var i = 0; i < bins; i++) if (counts[i] > maxCount) maxCount = counts[i];
+
+        var plotL = 50,
+          plotR = CW - 20,
+          plotT = 30,
+          plotB = CH - 50;
+        var plotW = plotR - plotL,
+          plotH = plotB - plotT;
+
+        // Axes
+        ctx.strokeStyle = "rgba(0,0,0,0.12)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(plotL, plotB);
+        ctx.lineTo(plotR, plotB);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(plotL, plotB);
+        ctx.lineTo(plotL, plotT);
+        ctx.stroke();
+
+        // Bars
+        var barW = plotW / bins;
+        for (var i = 0; i < bins; i++) {
+          var h = (counts[i] / maxCount) * plotH;
+          ctx.fillStyle = "rgba(29,158,117,0.45)";
+          ctx.fillRect(plotL + i * barW + 1, plotB - h, barW - 2, h);
+        }
+
+        // Gaussian overlay
+        var m = mean(proj);
+        var v = 0;
+        for (var i = 0; i < proj.length; i++) v += (proj[i] - m) * (proj[i] - m);
+        v /= proj.length;
+        var sd = Math.sqrt(v);
+
+        ctx.strokeStyle = "#E24B4A";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        var gMax = 1 / (sd * Math.sqrt(2 * Math.PI));
+        for (var px = 0; px <= bins * 4; px++) {
+          var xv = mn + (px / (bins * 4)) * (mx - mn);
+          var gv = (1 / (sd * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * ((xv - m) / sd) * ((xv - m) / sd));
+          // Scale: density * N * binWidth should match counts
+          var scaledG = gv * N * bw;
+          var gy = plotB - (scaledG / maxCount) * plotH;
+          var gx = plotL + (px / (bins * 4)) * plotW;
+          if (px === 0) ctx.moveTo(gx, gy);
+          else ctx.lineTo(gx, gy);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Legend
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.font = FONT_SMALL;
+        ctx.textAlign = "left";
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = "#E24B4A";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(plotL + 10, plotT + 12);
+        ctx.lineTo(plotL + 35, plotT + 12);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillText("Gaussian reference", plotL + 40, plotT + 16);
+
+        // Title
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.font = FONT_LABEL;
+        ctx.textAlign = "center";
+        if (label) ctx.fillText(label, CW / 2, CH - 10);
+
+        // X labels
+        ctx.font = FONT_TINY;
+        ctx.textAlign = "center";
+        for (var i = 0; i <= 4; i++) {
+          var v = mn + (i * (mx - mn)) / 4;
+          var lx = plotL + (i * plotW) / 4;
+          ctx.fillText(v.toFixed(1), lx, plotB + 16);
+        }
+      }
+
+      // --- Phase renderers ---
+
+      function renderPhase0() {
+        // Original sources
+        var range = getRange(s1, s2);
+        clearCanvas(ctx1);
+        drawAxes(ctx1, range, "s\u2081", "s\u2082");
+        drawScatter(ctx1, s1, s2, "rgba(29,158,117,0.35)", range);
+
+        clearCanvas(ctx2);
+        // Show as two separate time-series-like plots
+        var range2 = { min: -1.2, max: 1.2 };
+        drawAxes(ctx2, range2, "sample index", "value");
+        // Draw s1 as line
+        ctx2.strokeStyle = "rgba(29,158,117,0.6)";
+        ctx2.lineWidth = 1.5;
+        ctx2.beginPath();
+        for (var i = 0; i < Math.min(200, N); i++) {
+          var x = toCanvasX(range2.min + (i / 200) * (range2.max - range2.min), range2);
+          var y = toCanvasY(s1[i], range2);
+          if (i === 0) ctx2.moveTo(x, y);
+          else ctx2.lineTo(x, y);
+        }
+        ctx2.stroke();
+        // Draw s2 as line
+        ctx2.strokeStyle = "rgba(83,74,183,0.5)";
+        ctx2.beginPath();
+        for (var i = 0; i < Math.min(200, N); i++) {
+          var x = toCanvasX(range2.min + (i / 200) * (range2.max - range2.min), range2);
+          var y = toCanvasY(s2[i], range2);
+          if (i === 0) ctx2.moveTo(x, y);
+          else ctx2.lineTo(x, y);
+        }
+        ctx2.stroke();
+
+        // Legend on right canvas
+        ctx2.fillStyle = "rgba(29,158,117,0.8)";
+        ctx2.font = FONT_SMALL;
+        ctx2.textAlign = "left";
+        ctx2.fillText("s\u2081 (uniform)", 55, 25);
+        ctx2.fillStyle = "rgba(83,74,183,0.7)";
+        ctx2.fillText("s\u2082 (uniform)", 55, 42);
+
+        label1El.textContent = "Source scatter (square shape)";
+        label2El.textContent = "Source signals (independent, uniform)";
+        formulaEl.innerHTML = "s = [s\u2081, s\u2082]\u1D40 \u2014 two independent uniform random signals";
+        setMetrics([
+          { label: "Samples", value: N },
+          { label: "Distribution", value: "Uniform" },
+          { label: "Independence", value: "\u2713 Yes" },
+        ]);
+        statusEl.textContent = "Two independent uniform sources form a square scatter pattern.";
+      }
+
+      function renderPhase1() {
+        // Observed mixture
+        var rangeS = getRange(s1, s2);
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeS, "s\u2081", "s\u2082");
+        drawScatter(ctx1, s1, s2, "rgba(29,158,117,0.25)", rangeS);
+
+        var rangeX = getRange(x1, x2);
+        clearCanvas(ctx2);
+        drawAxes(ctx2, rangeX, "x\u2081", "x\u2082");
+        drawScatter(ctx2, x1, x2, "rgba(83,74,183,0.3)", rangeX);
+
+        label1El.textContent = "Original sources (square)";
+        label2El.textContent = "Observed mixture (parallelogram)";
+        formulaEl.innerHTML =
+          "x = As \u2014 A = [[" + A[0][0].toFixed(2) + ", " + A[0][1].toFixed(2) + "], [" + A[1][0].toFixed(2) + ", " + A[1][1].toFixed(2) + "]]";
+        var det = Math.abs(A[0][0] * A[1][1] - A[0][1] * A[1][0]);
+        setMetrics([
+          { label: "det(A)", value: det.toFixed(3) },
+          { label: "Shape", value: "Parallelogram" },
+          { label: "Signals mixed", value: "\u2713 Yes" },
+        ]);
+        statusEl.textContent = "Mixing matrix A transforms the square into a parallelogram.";
+      }
+
+      function renderPhase2() {
+        // Centering
+        var rangeX = getRange(x1, x2);
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeX, "x\u2081", "x\u2082");
+        drawScatter(ctx1, x1, x2, "rgba(83,74,183,0.2)", rangeX);
+        // Draw mean point
+        var mx0 = toCanvasX(meanX, rangeX);
+        var my0 = toCanvasY(meanY, rangeX);
+        ctx1.fillStyle = "#E24B4A";
+        ctx1.beginPath();
+        ctx1.arc(mx0, my0, 5, 0, Math.PI * 2);
+        ctx1.fill();
+        ctx1.fillStyle = "rgba(0,0,0,0.5)";
+        ctx1.font = FONT_SMALL;
+        ctx1.textAlign = "left";
+        ctx1.fillText("mean", mx0 + 8, my0 - 4);
+
+        var rangeC = getRange(cx, cy);
+        clearCanvas(ctx2);
+        drawAxes(ctx2, rangeC, "x\u2081 - \u03BC\u2081", "x\u2082 - \u03BC\u2082");
+        drawScatter(ctx2, cx, cy, "rgba(83,74,183,0.3)", rangeC);
+        // Draw origin
+        var ox = toCanvasX(0, rangeC);
+        var oy = toCanvasY(0, rangeC);
+        ctx2.fillStyle = "#0F6E56";
+        ctx2.beginPath();
+        ctx2.arc(ox, oy, 5, 0, Math.PI * 2);
+        ctx2.fill();
+
+        label1El.textContent = "Before centering";
+        label2El.textContent = "After centering (mean = 0)";
+        formulaEl.innerHTML = "x\u0303 = x - \u03BC \u2014 \u03BC = [" + meanX.toFixed(3) + ", " + meanY.toFixed(3) + "]";
+        setMetrics([
+          { label: "Mean x\u2081", value: meanX.toFixed(4) },
+          { label: "Mean x\u2082", value: meanY.toFixed(4) },
+          { label: "Shape", value: "Unchanged" },
+        ]);
+        statusEl.textContent = "Centering subtracts the mean. Shape is preserved, only position changes.";
+      }
+
+      function renderPhase3() {
+        // Whitening
+        var rangeC = getRange(cx, cy);
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeC, "x\u0303\u2081", "x\u0303\u2082");
+        drawScatter(ctx1, cx, cy, "rgba(83,74,183,0.2)", rangeC);
+
+        var rangeZ = getRange(zx, zy);
+        clearCanvas(ctx2);
+        drawAxes(ctx2, rangeZ, "z\u2081", "z\u2082");
+        drawScatter(ctx2, zx, zy, "rgba(96,94,90,0.25)", rangeZ);
+
+        label1El.textContent = "Centered data (parallelogram)";
+        label2El.textContent = "Whitened data (rotated square)";
+        formulaEl.innerHTML = "z = Vx\u0303 \u2014 V = D\u207B\u00B9\u02F2E\u1D40 (decorrelate + normalize variance)";
+
+        // Compute correlation of whitened data
+        var c00 = 0,
+          c01 = 0,
+          c11 = 0;
+        for (var i = 0; i < N; i++) {
+          c00 += zx[i] * zx[i];
+          c01 += zx[i] * zy[i];
+          c11 += zy[i] * zy[i];
+        }
+        c00 /= N;
+        c01 /= N;
+        c11 /= N;
+
+        setMetrics([
+          { label: "Var(z\u2081)", value: c00.toFixed(3) },
+          { label: "Cov(z\u2081,z\u2082)", value: c01.toFixed(4) },
+          { label: "Var(z\u2082)", value: c11.toFixed(3) },
+        ]);
+        statusEl.textContent = "Whitening decorrelates the data and equalizes variance. Cov \u2248 I.";
+      }
+
+      function renderPhase4() {
+        // Find w1
+        var rangeZ = getRange(zx, zy);
+
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeZ, "z\u2081", "z\u2082");
+        drawScatter(ctx1, zx, zy, "rgba(96,94,90,0.2)", rangeZ);
+        drawUnitCircle(ctx1, rangeZ);
+
+        // Draw trail
+        if (w1Trail.length > 1) {
+          drawTrail(ctx1, w1Trail.slice(0, -1), "#E24B4A", rangeZ);
+        }
+
+        // Draw current w1
+        var arrowColor = w1Converged ? "#0F6E56" : "#E24B4A";
+        drawArrow(ctx1, 0, 0, w1[0], w1[1], arrowColor, 2.5, rangeZ);
+
+        // Label
+        ctx1.fillStyle = arrowColor;
+        ctx1.font = FONT_LABEL;
+        ctx1.textAlign = "left";
+        var lx = toCanvasX(w1[0] * 0.55, rangeZ);
+        var ly = toCanvasY(w1[1] * 0.55, rangeZ) - 10;
+        ctx1.fillText("w\u2081", lx, ly);
+
+        // Right: histogram of w1^T z
+        var proj = [];
+        for (var i = 0; i < N; i++) {
+          proj.push(w1[0] * zx[i] + w1[1] * zy[i]);
+        }
+        drawHist(ctx2, proj, "Projection w\u2081\u1D40z");
+
+        label1El.textContent = "Whitened space with w\u2081";
+        label2El.textContent = "Histogram of w\u2081\u1D40z";
+
+        var angleStr = ((Math.atan2(w1[1], w1[0]) * 180) / Math.PI).toFixed(1);
+        formulaEl.innerHTML = "w\u2081 \u2190 E{z\u00B7tanh(w\u2081\u1D40z)} - E{1-tanh\u00B2(w\u2081\u1D40z)}\u00B7w\u2081, then normalize";
+
+        setMetrics([
+          { label: "Iteration", value: w1Iter },
+          { label: "Angle", value: angleStr + "\u00B0" },
+          { label: "Status", value: w1Converged ? "Converged \u2713" : "Iterating..." },
+        ]);
+        statusEl.textContent = w1Converged
+          ? "w\u2081 converged! Found direction of maximum non-Gaussianity."
+          : "FastICA fixed-point iteration: seeking direction of max non-Gaussianity.";
+      }
+
+      function renderPhase5() {
+        // Find w2 naive
+        var rangeZ = getRange(zx, zy);
+
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeZ, "z\u2081", "z\u2082");
+        drawScatter(ctx1, zx, zy, "rgba(96,94,90,0.2)", rangeZ);
+        drawUnitCircle(ctx1, rangeZ);
+
+        // Draw converged w1 (green)
+        drawArrow(ctx1, 0, 0, w1[0], w1[1], "#0F6E56", 2.5, rangeZ);
+        ctx1.fillStyle = "#0F6E56";
+        ctx1.font = FONT_LABEL;
+        var lx1 = toCanvasX(w1[0] * 0.6, rangeZ);
+        var ly1 = toCanvasY(w1[1] * 0.6, rangeZ) - 10;
+        ctx1.fillText("w\u2081", lx1, ly1);
+
+        // Draw trail of w2naive
+        if (w2naiveTrail.length > 1) {
+          drawTrail(ctx1, w2naiveTrail.slice(0, -1), "#BA7517", rangeZ);
+        }
+
+        // Draw current w2naive (amber)
+        drawArrow(ctx1, 0, 0, w2naive[0], w2naive[1], "#BA7517", 2.5, rangeZ);
+        ctx1.fillStyle = "#BA7517";
+        var lx2 = toCanvasX(w2naive[0] * 0.6, rangeZ) + 10;
+        var ly2 = toCanvasY(w2naive[1] * 0.6, rangeZ) + 15;
+        ctx1.fillText("w\u2082", lx2, ly2);
+
+        // Right canvas: zoomed view showing angle
+        clearCanvas(ctx2);
+        var rng2 = { min: -1.5, max: 1.5 };
+        drawAxes(ctx2, rng2, "z\u2081", "z\u2082");
+        drawUnitCircle(ctx2, rng2);
+        drawArrow(ctx2, 0, 0, w1[0], w1[1], "#0F6E56", 2.5, rng2);
+        drawArrow(ctx2, 0, 0, w2naive[0], w2naive[1], "#BA7517", 2.5, rng2);
+
+        // Draw angle arc
+        var cx0 = toCanvasX(0, rng2);
+        var cy0 = toCanvasY(0, rng2);
+        var a1 = -Math.atan2(w1[1], w1[0]);
+        var a2 = -Math.atan2(w2naive[1], w2naive[0]);
+        ctx2.strokeStyle = "#E24B4A";
+        ctx2.lineWidth = 1.5;
+        ctx2.beginPath();
+        var scale = (CW - 60) / (rng2.max - rng2.min);
+        ctx2.arc(cx0, cy0, scale * 0.25, Math.min(a1, a2), Math.max(a1, a2));
+        ctx2.stroke();
+
+        ctx2.fillStyle = "#0F6E56";
+        ctx2.font = FONT_LABEL;
+        ctx2.fillText("w\u2081", toCanvasX(w1[0] * 0.65, rng2), toCanvasY(w1[1] * 0.65, rng2) - 8);
+        ctx2.fillStyle = "#BA7517";
+        ctx2.fillText("w\u2082", toCanvasX(w2naive[0] * 0.65, rng2) + 8, toCanvasY(w2naive[1] * 0.65, rng2) + 14);
+
+        label1El.textContent = "w\u2082 converging (naive, no deflation)";
+        label2El.textContent = "Angle between w\u2081 and w\u2082";
+
+        var dp = Math.abs(dotProduct(w1, w2naive));
+        var ang = angleBetween(w1, w2naive);
+        formulaEl.innerHTML = "Problem: without deflation, w\u2082 converges to the same direction as w\u2081!";
+
+        setMetrics([
+          { label: "Iteration", value: w2naiveIter },
+          { label: "|w\u2081\u1D40w\u2082|", value: dp.toFixed(4) },
+          { label: "Angle", value: ang.toFixed(1) + "\u00B0" },
+        ]);
+        statusEl.textContent = w2naiveConverged
+          ? "w\u2082 converged to same direction as w\u2081! Dot product \u2248 1. We need deflation."
+          : "Running FastICA for w\u2082 without orthogonalization...";
+      }
+
+      function renderPhase6() {
+        // Gram-Schmidt fix
+        var rangeZ = getRange(zx, zy);
+
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeZ, "z\u2081", "z\u2082");
+        drawScatter(ctx1, zx, zy, "rgba(96,94,90,0.2)", rangeZ);
+        drawUnitCircle(ctx1, rangeZ);
+
+        // Draw converged w1 (green)
+        drawArrow(ctx1, 0, 0, w1[0], w1[1], "#0F6E56", 2.5, rangeZ);
+        ctx1.fillStyle = "#0F6E56";
+        ctx1.font = FONT_LABEL;
+        var lx1 = toCanvasX(w1[0] * 0.6, rangeZ);
+        var ly1 = toCanvasY(w1[1] * 0.6, rangeZ) - 10;
+        ctx1.fillText("w\u2081", lx1, ly1);
+
+        // Draw trail of w2defl
+        if (w2deflTrail.length > 1) {
+          drawTrail(ctx1, w2deflTrail.slice(0, -1), "#185FA5", rangeZ);
+        }
+
+        // Draw w2defl (blue)
+        var arrowColor2 = w2deflConverged ? "#185FA5" : "#185FA5";
+        drawArrow(ctx1, 0, 0, w2defl[0], w2defl[1], arrowColor2, 2.5, rangeZ);
+        ctx1.fillStyle = "#185FA5";
+        var lx2 = toCanvasX(w2defl[0] * 0.6, rangeZ) + 10;
+        var ly2 = toCanvasY(w2defl[1] * 0.6, rangeZ) + 15;
+        ctx1.fillText("w\u2082", lx2, ly2);
+
+        // Right canvas: unit circle with both vectors
+        clearCanvas(ctx2);
+        var rng2 = { min: -1.5, max: 1.5 };
+        drawAxes(ctx2, rng2, "z\u2081", "z\u2082");
+        drawUnitCircle(ctx2, rng2);
+        drawArrow(ctx2, 0, 0, w1[0], w1[1], "#0F6E56", 2.5, rng2);
+        drawArrow(ctx2, 0, 0, w2defl[0], w2defl[1], "#185FA5", 2.5, rng2);
+
+        // Draw right angle indicator
+        var cx0 = toCanvasX(0, rng2);
+        var cy0 = toCanvasY(0, rng2);
+        var a1 = -Math.atan2(w1[1], w1[0]);
+        var a2 = -Math.atan2(w2defl[1], w2defl[0]);
+        ctx2.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx2.lineWidth = 1.5;
+        var scl = (CW - 60) / (rng2.max - rng2.min);
+        ctx2.beginPath();
+        ctx2.arc(cx0, cy0, scl * 0.2, Math.min(a1, a2), Math.max(a1, a2));
+        ctx2.stroke();
+
+        ctx2.fillStyle = "#0F6E56";
+        ctx2.font = FONT_LABEL;
+        ctx2.fillText("w\u2081", toCanvasX(w1[0] * 0.65, rng2), toCanvasY(w1[1] * 0.65, rng2) - 8);
+        ctx2.fillStyle = "#185FA5";
+        ctx2.fillText("w\u2082", toCanvasX(w2defl[0] * 0.65, rng2) + 8, toCanvasY(w2defl[1] * 0.65, rng2) + 14);
+
+        label1El.textContent = "Whitened space with deflated w\u2082";
+        label2El.textContent = "Orthogonal directions on unit circle";
+
+        var ang = angleBetween(w1, w2defl);
+        var dp = Math.abs(dotProduct(w1, w2defl));
+        formulaEl.innerHTML = "Gram-Schmidt: w\u2082 \u2190 w\u2082 - (w\u2082\u1D40w\u2081)w\u2081, then normalize";
+
+        setMetrics([
+          { label: "Iteration", value: w2deflIter },
+          { label: "|w\u2081\u1D40w\u2082|", value: dp.toFixed(4) },
+          { label: "Angle", value: ang.toFixed(1) + "\u00B0" },
+        ]);
+        statusEl.textContent = w2deflConverged
+          ? "w\u2082 converged perpendicular to w\u2081! Angle \u2248 90\u00B0. Deflation works!"
+          : "Gram-Schmidt deflation: after each ICA update, remove projection onto w\u2081.";
+      }
+
+      function renderPhase7() {
+        // Recovered sources
+        // W = [w1; w2], recovered = W * z
+        var rec1 = [],
+          rec2 = [];
+        for (var i = 0; i < N; i++) {
+          rec1.push(w1[0] * zx[i] + w1[1] * zy[i]);
+          rec2.push(w2defl[0] * zx[i] + w2defl[1] * zy[i]);
+        }
+
+        var rangeR = getRange(rec1, rec2);
+        clearCanvas(ctx1);
+        drawAxes(ctx1, rangeR, "\u015D\u2081", "\u015D\u2082");
+        drawScatter(ctx1, rec1, rec2, "rgba(29,158,117,0.35)", rangeR);
+
+        // Draw w1, w2 as small indicators in corner
+        // Show original for comparison
+        var rangeS = getRange(s1, s2);
+        clearCanvas(ctx2);
+        drawAxes(ctx2, rangeS, "s\u2081", "s\u2082");
+        drawScatter(ctx2, s1, s2, "rgba(83,74,183,0.3)", rangeS);
+
+        label1El.textContent = "Recovered sources \u015D = W\u0303z";
+        label2El.textContent = "Original sources (for comparison)";
+
+        formulaEl.innerHTML = "\u015D = W\u0303z, \u00A0W\u0303 = [w\u2081, w\u2082]\u1D40 \u2014 square shape restored (up to sign/permutation)";
+
+        // Compute quality metrics
+        // Correlation between recovered and original
+        var corr1a = Math.abs(correlation(rec1, s1));
+        var corr1b = Math.abs(correlation(rec1, s2));
+        var corr2a = Math.abs(correlation(rec2, s1));
+        var corr2b = Math.abs(correlation(rec2, s2));
+        var bestCorr = Math.max(Math.min(corr1a, corr2b) + Math.min(corr1b, corr2a), Math.min(corr1a, corr2a) + Math.min(corr1b, corr2b));
+        // Pick the best assignment
+        var assign1, assign2;
+        if (corr1a + corr2b > corr1b + corr2a) {
+          assign1 = corr1a;
+          assign2 = corr2b;
+        } else {
+          assign1 = corr1b;
+          assign2 = corr2a;
+        }
+
+        var dpW = Math.abs(dotProduct(w1, w2defl));
+
+        setMetrics([
+          { label: "|corr(\u015D\u2081, s)|", value: Math.max(assign1, assign2).toFixed(4) },
+          { label: "|w\u2081\u1D40w\u2082|", value: dpW.toFixed(5) },
+          { label: "Shape", value: "Square \u2713" },
+        ]);
+        statusEl.textContent = "FastICA complete! Sources recovered up to sign and permutation ambiguity.";
+      }
+
+      function correlation(a, b) {
+        var ma = mean(a),
+          mb = mean(b);
+        var num = 0,
+          da = 0,
+          db = 0;
+        for (var i = 0; i < a.length; i++) {
+          num += (a[i] - ma) * (b[i] - mb);
+          da += (a[i] - ma) * (a[i] - ma);
+          db += (b[i] - mb) * (b[i] - mb);
+        }
+        return num / (Math.sqrt(da) * Math.sqrt(db) + 1e-12);
+      }
+
+      function setMetrics(arr) {
+        var html = "";
+        for (var i = 0; i < arr.length; i++) {
+          html +=
+            '<div class="metric-card"><div class="metric-label">' + arr[i].label + '</div><div class="metric-value">' + arr[i].value + "</div></div>";
+        }
+        metricsEl.innerHTML = html;
+      }
+
+      // Phase rendering dispatcher
+      function render() {
+        switch (currentPhase) {
+          case 0:
+            renderPhase0();
+            break;
+          case 1:
+            renderPhase1();
+            break;
+          case 2:
+            renderPhase2();
+            break;
+          case 3:
+            renderPhase3();
+            break;
+          case 4:
+            renderPhase4();
+            break;
+          case 5:
+            renderPhase5();
+            break;
+          case 6:
+            renderPhase6();
+            break;
+          case 7:
+            renderPhase7();
+            break;
+          default:
+            clearCanvas(ctx1);
+            clearCanvas(ctx2);
+            label1El.textContent = "";
+            label2El.textContent = "";
+            formulaEl.innerHTML = 'Click "Next step" to begin the FastICA demo.';
+            setMetrics([]);
+            statusEl.textContent = "";
+        }
+        buildPills();
+      }
+
+      // Phase advance logic
+      function runPhase() {
+        if (autoPlaying) return;
+
+        if (currentPhase < 0) {
+          // Start
+          currentPhase = 0;
+          phaseSubStep = 0;
+          render();
+          return;
+        }
+
+        // Phases 0-3: just advance
+        if (currentPhase < 4) {
+          completedPhases.push(currentPhase);
+          currentPhase++;
+          phaseSubStep = 0;
+          render();
+          return;
+        }
+
+        // Phase 4: iterate w1
+        if (currentPhase === 4) {
+          if (!w1Converged) {
+            var oldW = [w1[0], w1[1]];
+            w1 = icaStep(w1);
+            w1Iter++;
+            w1Trail.push([w1[0], w1[1]]);
+            if (hasConverged(oldW, w1) || w1Iter >= 50) {
+              w1Converged = true;
+            }
+            render();
+            return;
+          } else {
+            // Converged, move to phase 5
+            completedPhases.push(currentPhase);
+            currentPhase = 5;
+            phaseSubStep = 0;
+            // Initialize w2naive near w1 to show the problem
+            var a = Math.atan2(w1[1], w1[0]) + (Math.random() * 0.5 - 0.25 + 0.3);
+            w2naive = [Math.cos(a), Math.sin(a)];
+            w2naiveTrail = [[w2naive[0], w2naive[1]]];
+            w2naiveIter = 0;
+            w2naiveConverged = false;
+            render();
+            return;
+          }
+        }
+
+        // Phase 5: iterate w2 naive
+        if (currentPhase === 5) {
+          if (!w2naiveConverged) {
+            var oldW = [w2naive[0], w2naive[1]];
+            w2naive = icaStep(w2naive);
+            w2naiveIter++;
+            w2naiveTrail.push([w2naive[0], w2naive[1]]);
+            if (hasConverged(oldW, w2naive) || w2naiveIter >= 50) {
+              w2naiveConverged = true;
+            }
+            render();
+            return;
+          } else {
+            completedPhases.push(currentPhase);
+            currentPhase = 6;
+            phaseSubStep = 0;
+            // Initialize w2defl differently
+            var a = Math.atan2(w1[1], w1[0]) + Math.PI * 0.4 + Math.random() * 0.3;
+            w2defl = [Math.cos(a), Math.sin(a)];
+            w2deflTrail = [[w2defl[0], w2defl[1]]];
+            w2deflIter = 0;
+            w2deflConverged = false;
+            render();
+            return;
+          }
+        }
+
+        // Phase 6: iterate w2 with Gram-Schmidt
+        if (currentPhase === 6) {
+          if (!w2deflConverged) {
+            var oldW = [w2defl[0], w2defl[1]];
+            // ICA step
+            w2defl = icaStep(w2defl);
+            // Gram-Schmidt: subtract projection onto w1
+            var proj = dotProduct(w2defl, w1);
+            w2defl[0] -= proj * w1[0];
+            w2defl[1] -= proj * w1[1];
+            normalize(w2defl);
+            w2deflIter++;
+            w2deflTrail.push([w2defl[0], w2defl[1]]);
+            if (hasConverged(oldW, w2defl) || w2deflIter >= 50) {
+              w2deflConverged = true;
+            }
+            render();
+            return;
+          } else {
+            completedPhases.push(currentPhase);
+            currentPhase = 7;
+            phaseSubStep = 0;
+            render();
+            return;
+          }
+        }
+
+        // Phase 7: final
+        if (currentPhase === 7) {
+          completedPhases.push(currentPhase);
+          statusEl.textContent = 'Demo complete! Click "Reset with new data" to try again.';
+          render();
+        }
+      }
+
+      function resetAll() {
+        if (autoTimer) {
+          clearTimeout(autoTimer);
+          autoTimer = null;
+        }
+        autoPlaying = false;
+        currentPhase = -1;
+        completedPhases = [];
+        generateData();
+        render();
+        formulaEl.innerHTML = 'Click "Next step" to begin the FastICA demo.';
+        statusEl.textContent = "Fresh data generated. Ready to start.";
+        setMetrics([]);
+        clearCanvas(ctx1);
+        clearCanvas(ctx2);
+        label1El.textContent = "";
+        label2El.textContent = "";
+        buildPills();
+      }
+
+      function autoRun() {
+        if (autoPlaying) {
+          // Stop
+          autoPlaying = false;
+          if (autoTimer) {
+            clearTimeout(autoTimer);
+            autoTimer = null;
+          }
+          statusEl.textContent = 'Auto-play paused. Click "Next step" to continue manually.';
+          return;
+        }
+        autoPlaying = true;
+
+        function step() {
+          if (!autoPlaying) return;
+
+          // Check if we're done
+          if (currentPhase === 7 && completedPhases.indexOf(7) >= 0) {
+            autoPlaying = false;
+            return;
+          }
+
+          // Simulate runPhase logic
+          if (currentPhase < 0) {
+            currentPhase = 0;
+            phaseSubStep = 0;
+            render();
+            autoTimer = setTimeout(step, 350);
+            return;
+          }
+
+          if (currentPhase < 4) {
+            completedPhases.push(currentPhase);
+            currentPhase++;
+            phaseSubStep = 0;
+            render();
+            autoTimer = setTimeout(step, 600);
+            return;
+          }
+
+          if (currentPhase === 4) {
+            if (!w1Converged) {
+              var oldW = [w1[0], w1[1]];
+              w1 = icaStep(w1);
+              w1Iter++;
+              w1Trail.push([w1[0], w1[1]]);
+              if (hasConverged(oldW, w1) || w1Iter >= 50) {
+                w1Converged = true;
+              }
+              render();
+              autoTimer = setTimeout(step, 350);
+              return;
+            } else {
+              completedPhases.push(currentPhase);
+              currentPhase = 5;
+              var a = Math.atan2(w1[1], w1[0]) + (Math.random() * 0.5 - 0.25 + 0.3);
+              w2naive = [Math.cos(a), Math.sin(a)];
+              w2naiveTrail = [[w2naive[0], w2naive[1]]];
+              w2naiveIter = 0;
+              w2naiveConverged = false;
+              render();
+              autoTimer = setTimeout(step, 500);
+              return;
+            }
+          }
+
+          if (currentPhase === 5) {
+            if (!w2naiveConverged) {
+              var oldW = [w2naive[0], w2naive[1]];
+              w2naive = icaStep(w2naive);
+              w2naiveIter++;
+              w2naiveTrail.push([w2naive[0], w2naive[1]]);
+              if (hasConverged(oldW, w2naive) || w2naiveIter >= 50) {
+                w2naiveConverged = true;
+              }
+              render();
+              autoTimer = setTimeout(step, 350);
+              return;
+            } else {
+              completedPhases.push(currentPhase);
+              currentPhase = 6;
+              var a = Math.atan2(w1[1], w1[0]) + Math.PI * 0.4 + Math.random() * 0.3;
+              w2defl = [Math.cos(a), Math.sin(a)];
+              w2deflTrail = [[w2defl[0], w2defl[1]]];
+              w2deflIter = 0;
+              w2deflConverged = false;
+              render();
+              autoTimer = setTimeout(step, 500);
+              return;
+            }
+          }
+
+          if (currentPhase === 6) {
+            if (!w2deflConverged) {
+              var oldW = [w2defl[0], w2defl[1]];
+              w2defl = icaStep(w2defl);
+              var proj = dotProduct(w2defl, w1);
+              w2defl[0] -= proj * w1[0];
+              w2defl[1] -= proj * w1[1];
+              normalize(w2defl);
+              w2deflIter++;
+              w2deflTrail.push([w2defl[0], w2defl[1]]);
+              if (hasConverged(oldW, w2defl) || w2deflIter >= 50) {
+                w2deflConverged = true;
+              }
+              render();
+              autoTimer = setTimeout(step, 350);
+              return;
+            } else {
+              completedPhases.push(currentPhase);
+              currentPhase = 7;
+              render();
+              autoTimer = setTimeout(step, 500);
+              return;
+            }
+          }
+
+          if (currentPhase === 7) {
+            completedPhases.push(currentPhase);
+            render();
+            autoPlaying = false;
+            return;
+          }
+        }
+
+        step();
+      }
+
+      // Attach to element
+      el._runPhase = runPhase;
+      el._autoRun = autoRun;
+      el._resetAll = resetAll;
+
+      // Initialize
+      generateData();
+      buildPills();
+      clearCanvas(ctx1);
+      clearCanvas(ctx2);
+      formulaEl.innerHTML = 'Click "Next step" to begin the FastICA demo.';
+      statusEl.textContent = 'Data generated. Click "Next step" or "Auto-play all" to start.';
+      setMetrics([]);
+    })();
+  </script>
+</div>
+
+<h2 id="the-non-square-case">The Non-Square Case</h2>
+
+<p>
+  When the number of sensors $m$ exceeds the number of sources $n$, the only modification occurs in the whitening step. The covariance
+  eigendecomposition retains only the top $n$ eigenvalues, producing a whitening matrix $V \in \mathbb{R}^{n \times m}$ that simultaneously reduces
+  dimensionality and whitens. After this step, $\mathbf{z} = V\tilde{\mathbf{x}}$ is $(n \times T)$, and the FastICA core operates identically to the
+  square case.
+</p>
+
+<p>
+  The comparison below highlights precisely where the two pipelines diverge. The amber-highlighted dimensions are those that change; everything in the
+  whitened space (blue) remains $(n \times n)$.
+</p>
+
+<div class="ica-widget" id="widget-square">
+  <style>
+    #widget-square .col-header {
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      text-align: center;
+      padding: 8px 0 12px;
+    }
+    #widget-square .pipe-step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      font-family: var(--font-mono);
+      font-size: 16px;
+      color: var(--color-text-primary);
+      min-height: 42px;
+      flex-wrap: wrap;
+    }
+    #widget-square .pipe-step .dim {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+      font-weight: 400;
+    }
+    #widget-square .pipe-label {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      padding: 2px 12px;
+      font-weight: 500;
+    }
+    #widget-square .divider {
+      height: 0.5px;
+      background: var(--color-border-tertiary);
+      margin: 0;
+    }
+    #widget-square .highlight {
+      background: var(--color-background-info);
+      border-radius: var(--border-radius-md);
+      padding: 2px 8px;
+      font-size: 14px;
+      color: var(--color-text-info);
+    }
+    #widget-square .changed {
+      background: var(--color-background-warning);
+      border-radius: var(--border-radius-md);
+      padding: 2px 8px;
+      font-size: 14px;
+      color: var(--color-text-warning);
+    }
+    #widget-square .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--color-background-secondary);
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      flex-shrink: 0;
+    }
+    #widget-square .arrow-down {
+      text-align: center;
+      color: var(--color-text-secondary);
+      font-size: 14px;
+      padding: 2px 0;
+    }
+    #widget-square .note-box {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      line-height: 1.6;
+      padding: 8px 12px;
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      margin: 4px 12px;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+      <div style="border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden">
+        <div class="col-header" style="background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary)">
+          Square case: m = n
+        </div>
+        <div class="pipe-label" style="margin-top: 8px">Input</div>
+        <div class="pipe-step">x <span class="dim">(n × T)</span> = A <span class="dim">(n × n)</span> s <span class="dim">(n × T)</span></div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">1</span> Center</div>
+        <div class="pipe-step">x&#771; <span class="dim">(n × T)</span> = x - E{x}</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">2</span> Whiten</div>
+        <div class="pipe-step">V <span class="highlight">(n × n)</span></div>
+        <div class="pipe-step">z <span class="dim">(n × T)</span> = V · x&#771;</div>
+        <div class="note-box">All n eigenvalues used. No dimension change.</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">3</span> FastICA</div>
+        <div class="pipe-step">w&#7522; <span class="highlight">(n × 1)</span> for i = 1..n</div>
+        <div class="pipe-step">max J(w) = [E{G(w&#7488;z)} - E{G(v)}]²</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">4</span> Assemble</div>
+        <div class="pipe-step">W&#771; <span class="highlight">(n × n)</span> orthogonal</div>
+        <div class="pipe-step">W = W&#771; · V <span class="highlight">(n × n)</span></div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">5</span> Recover</div>
+        <div class="pipe-step" style="padding-bottom: 12px">s&#770; <span class="dim">(n × T)</span> = W · x&#771;</div>
+      </div>
+
+      <div style="border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden">
+        <div class="col-header" style="background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary)">
+          Non-square case: m > n
+        </div>
+        <div class="pipe-label" style="margin-top: 8px">Input</div>
+        <div class="pipe-step">x <span class="dim">(m × T)</span> = A <span class="changed">(m × n)</span> s <span class="dim">(n × T)</span></div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">1</span> Center</div>
+        <div class="pipe-step">x&#771; <span class="dim">(m × T)</span> = x - E{x}</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">2</span> PCA reduce + whiten</div>
+        <div class="pipe-step">C&#8339; <span class="dim">(m × m)</span> &#8594; keep top n eigenvecs</div>
+        <div class="pipe-step">V <span class="changed">(n × m)</span></div>
+        <div class="pipe-step">z <span class="dim">(n × T)</span> = V · x&#771;</div>
+        <div class="note-box">Discard m-n smallest eigenvalues. V reduces m dims to n dims AND whitens in one step.</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">3</span> FastICA (same!)</div>
+        <div class="pipe-step">w&#7522; <span class="highlight">(n × 1)</span> for i = 1..n</div>
+        <div class="pipe-step">max J(w) = [E{G(w&#7488;z)} - E{G(v)}]²</div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">4</span> Assemble</div>
+        <div class="pipe-step">W&#771; <span class="highlight">(n × n)</span> orthogonal</div>
+        <div class="pipe-step">W = W&#771; · V <span class="changed">(n × m)</span></div>
+        <div class="arrow-down">&#8595;</div>
+
+        <div class="pipe-label"><span class="step-num">5</span> Recover</div>
+        <div class="pipe-step" style="padding-bottom: 12px">s&#770; <span class="dim">(n × T)</span> = W · x&#771;</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px; padding: 12px 16px; background: var(--color-background-secondary); border-radius: var(--border-radius-md)">
+      <div style="font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 8px">What changes in the non-square case</div>
+      <div style="font-size: 14px; color: var(--color-text-secondary); line-height: 1.8; font-family: var(--font-mono)">
+        m = sensors (e.g. EEG channels, fMRI voxels), &nbsp; n = sources to extract (n < m)<br />
+        <span
+          style="
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            background: var(--color-background-warning);
+            vertical-align: middle;
+            margin-right: 4px;
+          "
+        ></span>
+        Only these dimensions change: A (m×n), V (n×m), W (n×m)<br />
+        <span
+          style="
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            background: var(--color-background-info);
+            vertical-align: middle;
+            margin-right: 4px;
+          "
+        ></span>
+        Everything in the whitened space stays (n×n) or (n×1) — identical algorithm<br /><br />
+        The PCA step in non-square ICA does two things at once:<br />
+        &nbsp;&nbsp;1. Dimensionality reduction: m dims &#8594; n dims (discard noise subspace)<br />
+        &nbsp;&nbsp;2. Whitening: E{zz&#7488;} = I<sub>n</sub><br />
+        After this, z is (n × T) and the FastICA core is exactly the same.
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 id="fmri-application">Application: fMRI Analysis</h2>
+
+<p>
+  Independent Component Analysis is a standard tool in functional neuroimaging, where it decomposes brain activity into spatially or temporally
+  independent networks. A 4D fMRI volume (three spatial dimensions plus time) is first reshaped into a 2D matrix $X$ by flattening all spatial
+  dimensions into rows. Each row represents the BOLD time series at one voxel.
+</p>
+
+<p>
+  PCA reduces the dimensionality from $m$ voxels to $n$ components (typically $n \approx 20$–$40$) while simultaneously whitening. FastICA then
+  operates in the compact $(n \times n)$ whitened space. Finally, each row of the unmixing matrix $W$ is reshaped back into a 3D brain map, revealing
+  spatially localized networks. The resulting components include both neural networks (default mode, visual, motor) and structured noise (head motion,
+  physiological pulsation), the latter identifiable by edge-localized spatial patterns and spiky temporal profiles.
+</p>
+
+<p>Click through the pipeline steps below to trace the transformation from raw 4D data to interpreted brain networks.</p>
+
+<div class="ica-widget" id="widget-fmri">
+  <style>
+    #widget-fmri .sp {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: var(--border-radius-md);
+      font-size: 16px;
+      margin: 0 3px 5px 0;
+      cursor: pointer;
+      border: 0.5px solid var(--color-border-tertiary);
+      background: transparent;
+      color: var(--color-text-secondary);
+      transition: all 0.2s;
+    }
+    #widget-fmri .sp.on {
+      background: var(--color-background-info);
+      color: var(--color-text-info);
+      border-color: var(--color-border-info);
+    }
+    #widget-fmri .sb {
+      background: var(--color-background-primary);
+      border: 0.5px solid var(--color-border-tertiary);
+      border-radius: var(--border-radius-lg);
+      padding: 16px 20px;
+      margin-top: 10px;
+    }
+    #widget-fmri .el {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      color: var(--color-text-primary);
+      padding: 8px 14px;
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      margin: 8px 0;
+      line-height: 1.8;
+    }
+    #widget-fmri .ins {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      line-height: 1.7;
+      margin-top: 8px;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <div id="fmri-pills"></div>
+    <div id="fmri-content"></div>
+    <div style="display: flex; gap: 8px; margin-top: 12px">
+      <button onclick="document.getElementById('widget-fmri')._goPrev()">Previous</button>
+      <button onclick="document.getElementById('widget-fmri')._goNext()">Next step</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var dk = false;
+      var cur = 0;
+      var stg = [
+        "Raw 4D fMRI data",
+        "Reshape to 2D matrix",
+        "PCA + whitening",
+        "FastICA decomposition",
+        "Reshape back to brain maps",
+        "Interpret components",
+      ];
+
+      function drawBrain(ctx, cx, cy, r, acts) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, r, r * 0.85, 0, 0, Math.PI * 2);
+        ctx.fillStyle = dk ? "#3a3a38" : "#e8e6df";
+        ctx.fill();
+        ctx.strokeStyle = dk ? "#5F5E5A" : "#B4B2A9";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy - r * 0.1, r * 0.55, r * 0.4, 0, 0, Math.PI * 2);
+        ctx.fillStyle = dk ? "#444441" : "#d3d1c7";
+        ctx.fill();
+        if (acts) {
+          for (var i = 0; i < acts.length; i++) {
+            var a = acts[i];
+            ctx.globalAlpha = a[4] || 0.7;
+            ctx.fillStyle = a[3];
+            ctx.beginPath();
+            ctx.arc(cx + a[0] * r, cy + a[1] * r, a[2] * r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+
+      function drawMat(ctx, x, y, w, h, rows, cols, fillFn, label, dimLbl) {
+        ctx.fillStyle = dk ? "rgba(58,58,56,0.4)" : "rgba(232,230,223,0.6)";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = dk ? "#5F5E5A" : "#B4B2A9";
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x, y, w, h);
+        if (fillFn) {
+          var cw = w / cols,
+            rh = h / rows;
+          for (var r = 0; r < rows; r++) {
+            for (var c = 0; c < cols; c++) {
+              var col = fillFn(r, c);
+              if (col) {
+                ctx.fillStyle = col;
+                ctx.fillRect(x + c * cw + 0.5, y + r * rh + 0.5, cw - 1, rh - 1);
+              }
+            }
+          }
+        }
+        if (label) {
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.textAlign = "center";
+          ctx.fillText(label, x + w / 2, y - 8);
+          ctx.textAlign = "start";
+        }
+        if (dimLbl) {
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.28)";
+          ctx.font = '16px "Poppins",sans-serif';
+          ctx.textAlign = "center";
+          ctx.fillText(dimLbl, x + w / 2, y + h + 14);
+          ctx.textAlign = "start";
+        }
+      }
+
+      function pills() {
+        var el = document.getElementById("fmri-pills");
+        el.innerHTML = "";
+        for (var i = 0; i < stg.length; i++) {
+          var b = document.createElement("span");
+          b.className = "sp" + (i === cur ? " on" : "");
+          b.textContent = i + 1 + ". " + stg[i];
+          b.setAttribute("data-i", i);
+          b.onclick = function () {
+            cur = parseInt(this.getAttribute("data-i"));
+            render();
+          };
+          el.appendChild(b);
+        }
+      }
+
+      var widgetEl = document.getElementById("widget-fmri");
+      widgetEl._goNext = function () {
+        if (cur < 5) {
+          cur++;
+          render();
+        }
+      };
+      widgetEl._goPrev = function () {
+        if (cur > 0) {
+          cur--;
+          render();
+        }
+      };
+
+      function render() {
+        pills();
+        var c = document.getElementById("fmri-content");
+        if (cur === 0) s0(c);
+        else if (cur === 1) s1(c);
+        else if (cur === 2) s2(c);
+        else if (cur === 3) s3(c);
+        else if (cur === 4) s4(c);
+        else s5(c);
+      }
+
+      function s0(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c0" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">Typical: 64 x 64 x 36 slices x 200 time points = ~150,000 in-brain voxels (m) x 200 time (T)</div><div class="ins">fMRI measures the BOLD signal at each voxel over time. The raw data is a 4D array: 3 spatial dims + 1 time dim. Each voxel has its own noisy time series reflecting local neural activity.</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c0");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 260);
+          for (var t = 4; t >= 0; t--) {
+            var ox = t * 16,
+              oy = 170 - t * 26;
+            ctx.save();
+            ctx.globalAlpha = 0.25 + t * 0.16;
+            drawBrain(ctx, 85 + ox, oy, 48, null);
+            ctx.restore();
+          }
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.5)";
+          ctx.font = '16px "Poppins",sans-serif';
+          ctx.fillText("t=0", 140, 176);
+          ctx.fillText("t=4", 204, 72);
+          ctx.strokeStyle = "#534AB7";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(190, 170);
+          ctx.lineTo(240, 60);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#534AB7";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("time axis", 210, 55);
+
+          drawBrain(ctx, 380, 110, 65, [
+            [0.2, -0.2, 0.12, "#E24B4A", 0.8],
+            [-0.25, 0.1, 0.1, "#378ADD", 0.7],
+            [0.0, -0.4, 0.08, "#1D9E75", 0.7],
+          ]);
+          var tsets = [
+            { y: 48, col: "#E24B4A", d: [0, 0.3, 0.7, 0.5, 0.1, 0.8, 1, 0.6, 0.2, 0.1, 0.5, 0.9, 0.6, 0.2, 0.4, 0.8] },
+            { y: 118, col: "#378ADD", d: [0.5, 0.2, 0.6, 0.9, 0.3, 0.1, 0.5, 0.8, 0.4, 0.7, 0.2, 0.6, 0.9, 0.3, 0.5, 0.7] },
+            { y: 188, col: "#1D9E75", d: [0.3, 0.7, 0.4, 0.2, 0.5, 0.8, 0.3, 0.6, 0.9, 0.4, 0.2, 0.7, 0.5, 0.3, 0.8, 0.6] },
+          ];
+          tsets.forEach(function (ts) {
+            ctx.setLineDash([3, 3]);
+            ctx.strokeStyle = ts.col;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(420, ts.y + 30);
+            ctx.lineTo(470, ts.y + 10);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.strokeStyle = ts.col;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (var i = 0; i < ts.d.length; i++) {
+              var px = 475 + i * 9,
+                py = ts.y + 25 - ts.d[i] * 20;
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          });
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.45)";
+          ctx.font = '16px "Poppins",sans-serif';
+          ctx.fillText("BOLD time series per voxel", 475, 230);
+        }, 50);
+      }
+
+      function s1(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c1" width="640" height="280" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">4D: (64x64x36) x 200 \u2192 2D: X (m x T) = (~150k x 200)<br>Flatten all spatial dims into rows. Each row = one voxel time series.</div><div class="ins">A brain mask keeps only in-brain voxels. The result is a tall, thin matrix. Each row is the complete BOLD time series at one spatial location. Each column is the entire brain volume at one time point.</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c1");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 280);
+          drawBrain(ctx, 80, 120, 55, [
+            [0.15, -0.15, 0.06, "#E24B4A", 0.6],
+            [-0.2, 0.1, 0.06, "#378ADD", 0.6],
+            [0.0, -0.3, 0.05, "#1D9E75", 0.5],
+          ]);
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.45)";
+          ctx.font = '14px "Poppins",sans-serif';
+          ctx.fillText("4D volume", 45, 210);
+          ctx.fillText("(x, y, z, t)", 50, 226);
+          ctx.strokeStyle = "#534AB7";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(155, 120);
+          ctx.lineTo(210, 120);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(204, 114);
+          ctx.lineTo(210, 120);
+          ctx.lineTo(204, 126);
+          ctx.stroke();
+          ctx.fillStyle = "#534AB7";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("unroll", 166, 110);
+          ctx.fillText("spatial", 164, 140);
+          drawMat(
+            ctx,
+            230,
+            30,
+            370,
+            220,
+            20,
+            12,
+            function (r, c) {
+              var v = Math.sin(r * 0.7 + c * 0.5) * 0.5 + Math.cos(r * 0.3 - c * 0.8) * 0.3;
+              var a = Math.abs(v) * 0.5 + 0.1;
+              if (v > 0) return "rgba(226,75,74," + a + ")";
+              return "rgba(55,138,221," + a + ")";
+            },
+            "X",
+            "(m x T) = (~150k x 200)"
+          );
+          ctx.save();
+          ctx.translate(222, 155);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillStyle = "#0F6E56";
+          ctx.font = '16px "Poppins",sans-serif';
+          ctx.fillText("m voxels (rows)", 0, 0);
+          ctx.restore();
+          ctx.fillStyle = "#534AB7";
+          ctx.font = '16px "Poppins",sans-serif';
+          ctx.fillText("T time points (columns)", 350, 24);
+        }, 50);
+      }
+
+      function s2(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c2" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">PCA on X\u1d40X (T x T = 200 x 200, small!) \u2192 keep top n eigenvecs<br>V (n x m) \u2192 z = V x\u0303 of shape (n x T), whitened: E{zz\u1d40} = I</div><div class="ins">Key trick: compute eigendecomposition on the T x T temporal correlation (200 x 200), NOT the huge m x m spatial covariance. PCA simultaneously reduces dimensions (m \u2192 n \u2248 20\u201340 components) and whitens. After this, data lives in a compact (n x T) space.</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c2");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 260);
+          drawMat(
+            ctx,
+            15,
+            45,
+            85,
+            170,
+            18,
+            10,
+            function (r, c) {
+              var v = Math.sin(r * 0.7 + c * 0.5) * 0.4;
+              var a = Math.abs(v) * 0.4 + 0.1;
+              return v > 0 ? "rgba(226,75,74," + a + ")" : "rgba(55,138,221," + a + ")";
+            },
+            "X",
+            "(m x T)"
+          );
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 18px "Poppins",sans-serif';
+          ctx.fillText("\u2192", 115, 135);
+          drawMat(
+            ctx,
+            150,
+            75,
+            55,
+            55,
+            6,
+            6,
+            function (r, c) {
+              if (r === c) return "rgba(83,74,183," + (0.6 - r * 0.08) + ")";
+              return "rgba(83,74,183," + Math.exp(-Math.abs(r - c) * 0.5) * 0.2 + ")";
+            },
+            "X\u1d40X / T",
+            "(T x T)"
+          );
+          ctx.fillStyle = "#BA7517";
+          ctx.font = '13px "Poppins",sans-serif';
+          ctx.fillText("eigendecompose", 225, 80);
+          ctx.fillText("keep top n", 235, 96);
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 18px "Poppins",sans-serif';
+          ctx.fillText("\u2192", 225, 115);
+          drawMat(
+            ctx,
+            255,
+            95,
+            100,
+            35,
+            3,
+            12,
+            function (r, c) {
+              return "rgba(29,158,117," + (Math.abs(Math.cos(r * 1.2 + c * 0.8)) * 0.5 + 0.15) + ")";
+            },
+            "V",
+            "(n x m)"
+          );
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("\u00d7", 370, 115);
+          drawMat(
+            ctx,
+            390,
+            45,
+            85,
+            170,
+            18,
+            10,
+            function (r, c) {
+              var v = Math.sin(r * 0.7 + c * 0.5) * 0.4;
+              var a = Math.abs(v) * 0.4 + 0.1;
+              return v > 0 ? "rgba(226,75,74," + a + ")" : "rgba(55,138,221," + a + ")";
+            },
+            "x\u0303",
+            "(m x T)"
+          );
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("=", 492, 115);
+          drawMat(
+            ctx,
+            510,
+            85,
+            110,
+            55,
+            3,
+            12,
+            function (r, c) {
+              var v = Math.sin(r * 2.1 + c * 0.9) * 0.6;
+              var a = Math.abs(v) * 0.5 + 0.2;
+              return v > 0 ? "rgba(83,74,183," + a + ")" : "rgba(29,158,117," + a + ")";
+            },
+            "z (whitened)",
+            "(n x T)"
+          );
+        }, 50);
+      }
+
+      function s3(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c3" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">FastICA on z (n x T): find W\u0303 (n x n) orthogonal, maximizing non-Gaussianity<br>s\u0302 = W\u0303 z \u2192 each row of s\u0302 is one independent component time course</div><div class="ins">FastICA operates entirely in the compact (n x n) whitened space. It finds n unmixing directions that maximize statistical independence of the output rows. This is fast: n is only 20\u201340 regardless of how many voxels m you have. The full unmixing is W = W\u0303 V of shape (n x m).</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c3");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 260);
+          drawMat(
+            ctx,
+            15,
+            85,
+            95,
+            55,
+            3,
+            12,
+            function (r, c) {
+              var v = Math.sin(r * 2.1 + c * 0.9) * 0.6;
+              var a = Math.abs(v) * 0.5 + 0.2;
+              return v > 0 ? "rgba(83,74,183," + a + ")" : "rgba(29,158,117," + a + ")";
+            },
+            "z",
+            "(n x T)"
+          );
+          ctx.fillStyle = "#D85A30";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("FastICA", 130, 85);
+          ctx.strokeStyle = "#D85A30";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(122, 112);
+          ctx.lineTo(178, 112);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(172, 107);
+          ctx.lineTo(178, 112);
+          ctx.lineTo(172, 117);
+          ctx.stroke();
+          drawMat(
+            ctx,
+            195,
+            88,
+            45,
+            45,
+            3,
+            3,
+            function (r, c) {
+              return r === c ? "rgba(216,90,48,0.65)" : "rgba(216,90,48," + (Math.random() * 0.12 + 0.03) + ")";
+            },
+            "W\u0303",
+            "(n x n)"
+          );
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("\u00d7", 255, 115);
+          drawMat(
+            ctx,
+            275,
+            85,
+            95,
+            55,
+            3,
+            12,
+            function (r, c) {
+              var v = Math.sin(r * 2.1 + c * 0.9) * 0.6;
+              var a = Math.abs(v) * 0.5 + 0.2;
+              return v > 0 ? "rgba(83,74,183," + a + ")" : "rgba(29,158,117," + a + ")";
+            },
+            "z",
+            "(n x T)"
+          );
+          ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+          ctx.font = '500 14px "Poppins",sans-serif';
+          ctx.fillText("=", 385, 115);
+          var tcols = ["rgba(226,75,74,", "rgba(55,138,221,", "rgba(29,158,117,", "rgba(186,117,23,"];
+          drawMat(
+            ctx,
+            405,
+            85,
+            95,
+            55,
+            3,
+            12,
+            function (r, c) {
+              var v = Math.sin(r * 3.5 + c * 1.2) * 0.7;
+              var a = Math.abs(v) * 0.6 + 0.15;
+              return tcols[r % 4] + a + ")";
+            },
+            "s\u0302 = W\u0303z",
+            "(n x T)"
+          );
+          var tcs = [
+            [0, 0.3, 0.8, 0.5, 0.1, 0.7, 1, 0.4, 0.1, 0.6, 0.9, 0.3, 0.5, 0.2, 0.7, 0.4],
+            [0.5, 0.2, 0.6, 0.9, 0.4, 0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.6, 0.4, 0.8, 0.3, 0.5],
+            [0.8, 0.6, 0.3, 0.1, 0.4, 0.7, 0.2, 0.5, 0.9, 0.4, 0.1, 0.7, 0.6, 0.3, 0.8, 0.5],
+          ];
+          var tcl = ["#E24B4A", "#378ADD", "#1D9E75"];
+          tcs.forEach(function (tc, ri) {
+            var by = 50 + ri * 70;
+            ctx.strokeStyle = tcl[ri];
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (var i = 0; i < tc.length; i++) {
+              var px = 520 + i * 7,
+                py = by + 25 - tc[i] * 20;
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.fillStyle = tcl[ri];
+            ctx.font = '500 14px "Poppins",sans-serif';
+            ctx.fillText("IC" + (ri + 1), 520, by + 2);
+          });
+        }, 50);
+      }
+
+      function s4(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c4" width="640" height="260" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">Full unmixing: W = W\u0303 V (n x m). Each row of W has m entries = one weight per voxel.<br>Reshape row i back to 3D brain grid \u2192 spatial map for component i.</div><div class="ins">High-magnitude voxels (positive or negative) in each row indicate brain regions belonging to that network. Thresholding these maps (e.g. |z| > 2) gives the familiar colored blobs overlaid on structural MRI.</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c4");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 260);
+          var tcols2 = ["rgba(226,75,74,", "rgba(55,138,221,", "rgba(29,158,117,"];
+          drawMat(
+            ctx,
+            15,
+            70,
+            120,
+            80,
+            3,
+            16,
+            function (r, c) {
+              var v = Math.sin(r * 1.8 + c * 0.7) * 0.6;
+              var a = Math.abs(v) * 0.5 + 0.1;
+              return tcols2[r % 3] + a + ")";
+            },
+            "W = W\u0303 V",
+            "(n x m)"
+          );
+          var maps = [
+            {
+              lbl: "IC 1: default mode",
+              col: "#E24B4A",
+              spots: [
+                [0.0, -0.3, 0.15],
+                [0.0, 0.25, 0.12],
+              ],
+            },
+            {
+              lbl: "IC 2: visual",
+              col: "#378ADD",
+              spots: [
+                [0.0, 0.3, 0.17],
+                [-0.15, 0.2, 0.08],
+                [0.15, 0.2, 0.08],
+              ],
+            },
+            {
+              lbl: "IC 3: motor",
+              col: "#1D9E75",
+              spots: [
+                [-0.25, -0.1, 0.13],
+                [0.25, -0.1, 0.13],
+              ],
+            },
+          ];
+          ctx.strokeStyle = dk ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)";
+          ctx.lineWidth = 0.5;
+          ctx.setLineDash([3, 3]);
+          maps.forEach(function (m, i) {
+            ctx.beginPath();
+            ctx.moveTo(135, 78 + i * 26);
+            ctx.lineTo(175, 55 + i * 76);
+            ctx.stroke();
+          });
+          ctx.setLineDash([]);
+          maps.forEach(function (m, i) {
+            var bx = 180 + i * 155,
+              by = 30;
+            var acts = m.spots.map(function (s) {
+              return [s[0], s[1], s[2], m.col, 0.75];
+            });
+            drawBrain(ctx, bx + 55, by + 65, 50, acts);
+            ctx.fillStyle = m.col;
+            ctx.font = '500 14px "Poppins",sans-serif';
+            ctx.fillText(m.lbl, bx + 10, by + 5);
+            ctx.fillStyle = dk ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)";
+            ctx.font = '11px "Poppins",sans-serif';
+            ctx.fillText("reshape row \u2192 3D", bx + 25, by + 135);
+          });
+        }, 50);
+      }
+
+      function s5(el) {
+        el.innerHTML =
+          '<div class="sb"><canvas id="fmri-c5" width="640" height="380" style="width:100%;border-radius:var(--border-radius-md);background:var(--color-background-secondary)"></canvas><div class="el">X \u2248 A S : each component = one spatial network + its temporal activity<br>Row of S \u2192 time course &nbsp;|&nbsp; Row of W (or col of A) \u2192 spatial map</div><div class="ins">Classic resting-state networks: default mode (mPFC + PCC, mind-wandering), visual (occipital), motor (precentral gyrus), attention (dlPFC + parietal). Noise components (head motion, CSF pulsation) also emerge \u2014 identified by edge/ventricle spatial patterns and spiky time courses, then removed as denoising.</div></div>';
+        setTimeout(function () {
+          var cv = document.getElementById("fmri-c5");
+          if (!cv) return;
+          var ctx = cv.getContext("2d");
+          ctx.clearRect(0, 0, 640, 380);
+          var nets = [
+            {
+              name: "Default mode network",
+              col: "#E24B4A",
+              spots: [
+                [0.0, -0.32, 0.15],
+                [0.0, 0.25, 0.12],
+                [-0.15, -0.08, 0.07],
+              ],
+              tc: [0.5, 0.7, 0.6, 0.8, 0.4, 0.3, 0.7, 0.9, 0.6, 0.4, 0.8, 0.5, 0.7, 0.3, 0.6, 0.8, 0.5, 0.7],
+              type: "n",
+            },
+            {
+              name: "Visual network",
+              col: "#378ADD",
+              spots: [
+                [0.0, 0.3, 0.18],
+                [0.15, 0.22, 0.08],
+                [-0.15, 0.22, 0.08],
+              ],
+              tc: [0.2, 0.8, 0.3, 0.9, 0.2, 0.7, 0.4, 0.8, 0.1, 0.9, 0.3, 0.7, 0.2, 0.8, 0.4, 0.9, 0.1, 0.7],
+              type: "n",
+            },
+            {
+              name: "Motor network",
+              col: "#1D9E75",
+              spots: [
+                [-0.25, -0.08, 0.13],
+                [0.25, -0.08, 0.13],
+                [0.0, -0.18, 0.07],
+              ],
+              tc: [0.3, 0.4, 0.8, 0.3, 0.5, 0.9, 0.4, 0.3, 0.7, 0.5, 0.3, 0.8, 0.4, 0.6, 0.3, 0.5, 0.8, 0.4],
+              type: "n",
+            },
+            {
+              name: "Head motion artifact",
+              col: "#888780",
+              spots: [
+                [0.3, 0.35, 0.09],
+                [-0.3, 0.35, 0.09],
+                [0.35, -0.28, 0.08],
+                [-0.35, -0.28, 0.08],
+                [0.0, -0.42, 0.05],
+                [0.0, 0.42, 0.05],
+              ],
+              tc: [0.1, 0.1, 0.1, 0.1, 0.9, 0.8, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.7, 0.1, 0.1, 0.1, 0.1, 0.6],
+              type: "x",
+            },
+          ];
+          nets.forEach(function (net, i) {
+            var by = 8 + i * 92;
+            var acts = net.spots.map(function (s) {
+              return [s[0], s[1], s[2], net.col, 0.75];
+            });
+            drawBrain(ctx, 50, by + 42, 36, acts);
+            ctx.fillStyle = net.col;
+            ctx.font = '500 14px "Poppins",sans-serif';
+            ctx.fillText(net.name, 100, by + 20);
+            ctx.strokeStyle = net.col;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (var t = 0; t < net.tc.length; t++) {
+              var px = 100 + t * 14,
+                py = by + 55 - net.tc[t] * 28;
+              if (t === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.fillStyle = dk ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)";
+            ctx.font = '16px "Poppins",sans-serif';
+            ctx.fillText("time course", 100, by + 76);
+            if (net.type === "n") {
+              ctx.fillStyle = net.col + "25";
+              ctx.fillRect(380, by + 10, 120, 26);
+              ctx.strokeStyle = net.col;
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(380, by + 10, 120, 26);
+              ctx.fillStyle = net.col;
+              ctx.font = '500 14px "Poppins",sans-serif';
+              ctx.fillText("neural network \u2713", 390, by + 28);
+            } else {
+              ctx.fillStyle = "rgba(136,135,128,0.12)";
+              ctx.fillRect(380, by + 10, 120, 26);
+              ctx.strokeStyle = "#888780";
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(380, by + 10, 120, 26);
+              ctx.fillStyle = "#888780";
+              ctx.font = '500 14px "Poppins",sans-serif';
+              ctx.fillText("noise \u2192 remove", 390, by + 28);
+              ctx.strokeStyle = "#E24B4A";
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(380, by + 10);
+              ctx.lineTo(500, by + 36);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(500, by + 10);
+              ctx.lineTo(380, by + 36);
+              ctx.stroke();
+            }
+            if (i < 3) {
+              ctx.strokeStyle = dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+              ctx.lineWidth = 0.5;
+              ctx.beginPath();
+              ctx.moveTo(10, by + 88);
+              ctx.lineTo(620, by + 88);
+              ctx.stroke();
+            }
+          });
+        }, 50);
+      }
+
+      render();
+    })();
+  </script>
+</div>
+
+<h2 id="spatial-vs-temporal-ica">Spatial ICA vs. Temporal ICA</h2>
+
+<p>
+  A fundamental observation: ICA always enforces statistical independence on the <em>rows</em> of $S$ in the decomposition $X = AS$. The orientation
+  of the data matrix $X$ therefore determines the nature of the independent components.
+</p>
+
+<p>
+  In <strong>spatial ICA</strong>, the data matrix is organized as $X \in \mathbb{R}^{T \times m}$ (time $\times$ voxels). The rows of $S$ are then
+  $m$-dimensional spatial vectors — independent spatial maps. The columns of $A$ are the associated time courses, which carry no independence
+  guarantee. This formulation exploits the spatial sparsity of brain networks: each network occupies a localized set of voxels, and most voxels
+  participate in at most one network. Spatial ICA is the standard approach in tools such as FSL MELODIC and the Human Connectome Project.
+</p>
+
+<p>
+  In <strong>temporal ICA</strong>, the matrix is transposed: $X \in \mathbb{R}^{m \times T}$. The rows of $S$ are now $T$-dimensional temporal
+  vectors — independent time courses. The columns of $A$ give spatial maps that may overlap. This formulation assumes that the temporal dynamics of
+  different processes (task responses, slow drifts, cardiac pulsation) are statistically independent.
+</p>
+
+<p>
+  The cocktail party problem is temporal ICA: the source signals are temporal waveforms, and independence holds across time. A useful mnemonic: the
+  dimension in the <em>columns</em> of $X$ is the dimension along which ICA enforces independence, because it becomes the row dimension of $S$.
+</p>
+
+<div class="ica-widget" id="widget-stica">
+  <style>
+    #widget-stica .col-card {
+      border: 0.5px solid var(--color-border-tertiary);
+      border-radius: var(--border-radius-lg);
+      overflow: hidden;
+    }
+    #widget-stica .col-head {
+      padding: 10px 16px;
+      font-size: 17px;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+    }
+    #widget-stica .col-body {
+      padding: 14px 16px;
+    }
+    #widget-stica .ri {
+      margin-bottom: 14px;
+    }
+    #widget-stica .rl {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    #widget-stica .rv {
+      font-size: 16px;
+      color: var(--color-text-primary);
+      line-height: 1.6;
+    }
+    #widget-stica .mono {
+      font-family: var(--font-mono);
+      font-size: 14px;
+    }
+    #widget-stica .ts {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--border-radius-md);
+      font-size: 16px;
+      font-weight: 500;
+      background: #e1f5ee;
+      color: #085041;
+    }
+    #widget-stica .tt {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--border-radius-md);
+      font-size: 16px;
+      font-weight: 500;
+      background: #eeedfe;
+      color: #3c3489;
+    }
+    #widget-stica .tn {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--border-radius-md);
+      font-size: 16px;
+      font-weight: 500;
+      background: #f1efe8;
+      color: #444441;
+    }
+    #widget-stica .eb {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      color: var(--color-text-primary);
+      padding: 8px 14px;
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      margin: 6px 0;
+      line-height: 1.8;
+    }
+    #widget-stica .nb {
+      background: var(--color-background-secondary);
+      border-radius: var(--border-radius-md);
+      padding: 12px 16px;
+      margin-top: 12px;
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      line-height: 1.7;
+    }
+  </style>
+  <div style="padding: 0.5rem 0">
+    <canvas
+      id="stica-cvTop"
+      width="640"
+      height="280"
+      style="width: 100%; border-radius: var(--border-radius-md); background: var(--color-background-secondary); margin-bottom: 12px"
+    ></canvas>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+      <div class="col-card">
+        <div class="col-head" style="background: #e1f5ee; color: #085041">Spatial ICA (sICA)</div>
+        <div class="col-body">
+          <div class="ri">
+            <div class="rl">Data matrix fed to ICA</div>
+            <div class="rv mono">X = (T time x m voxels)</div>
+          </div>
+          <div class="ri">
+            <div class="rl">Independence assumption</div>
+            <div class="rv"><span class="ts">Spatial maps</span> are statistically independent across voxels</div>
+          </div>
+          <div class="ri">
+            <div class="rl">Decomposition X = A S</div>
+            <div class="eb">
+              <span class="tn">(T x m)</span> = <span class="tt">(T x n)</span> <span class="ts">(n x m)</span><br /><br />Rows of S:
+              <span class="ts">(1 x m)</span> = spatial maps (independent!)<br />Cols of A: <span class="tt">(T x 1)</span> = time courses (may be
+              correlated)
+            </div>
+          </div>
+          <div class="ri">
+            <div class="rl">Why it works</div>
+            <div class="rv">
+              Brain networks are spatially sparse and localized. Most voxels belong to at most one network. m >> T gives plenty of spatial samples.
+              This is the standard approach (HCP, UK Biobank, FSL MELODIC).
+            </div>
+          </div>
+          <div class="ri">
+            <div class="rl">PCA reduction axis</div>
+            <div class="rv mono">T &#8594; n (temporal reduction, cheap)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-card">
+        <div class="col-head" style="background: #eeedfe; color: #3c3489">Temporal ICA (tICA)</div>
+        <div class="col-body">
+          <div class="ri">
+            <div class="rl">Data matrix fed to ICA</div>
+            <div class="rv mono">X = (m voxels x T time)</div>
+          </div>
+          <div class="ri">
+            <div class="rl">Independence assumption</div>
+            <div class="rv"><span class="tt">Time courses</span> are statistically independent across time</div>
+          </div>
+          <div class="ri">
+            <div class="rl">Decomposition X = A S</div>
+            <div class="eb">
+              <span class="tn">(m x T)</span> = <span class="ts">(m x n)</span> <span class="tt">(n x T)</span><br /><br />Rows of S:
+              <span class="tt">(1 x T)</span> = time courses (independent!)<br />Cols of A: <span class="ts">(m x 1)</span> = spatial maps (may
+              overlap)
+            </div>
+          </div>
+          <div class="ri">
+            <div class="rl">Why it works</div>
+            <div class="rv">
+              Task responses, slow drifts, cardiac pulsation, and spontaneous fluctuations have truly distinct temporal dynamics. Needs T >> n (long
+              scans, fast TR). Used in HCP dense connectome analyses (Glasser et al. 2018).
+            </div>
+          </div>
+          <div class="ri">
+            <div class="rl">PCA reduction axis</div>
+            <div class="rv mono">m &#8594; n (spatial reduction, expensive)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nb" style="border-left: 3px solid #d85a30; margin-top: 16px">
+      <div style="font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 6px">
+        The universal rule: ICA always makes rows of S independent
+      </div>
+      <div>
+        The only difference between sICA and tICA is the orientation of the data matrix. In sICA, voxels go in the columns so that rows of S are
+        m-dimensional spatial vectors. In tICA, time goes in the columns so that rows of S are T-dimensional temporal vectors. The FastICA algorithm
+        itself is identical in both cases.
+      </div>
+      <div style="margin-top: 8px">
+        A useful mnemonic: the dimension that appears in the <b style="font-weight: 500">columns</b> of X is the dimension along which ICA enforces
+        independence (because it becomes the row dimension of S).
+      </div>
+    </div>
+
+    <div class="nb" style="margin-top: 10px">
+      <div style="font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 6px">
+        Correcting the earlier pipeline diagrams
+      </div>
+      <div>
+        In the fMRI pipeline I showed earlier, I wrote X = (m x T) and called it spatial ICA. That was wrong. With X = (m x T), the rows of S are
+        T-dimensional = time courses, which is temporal ICA. For spatial ICA, the pipeline should start with X = (T x m), or equivalently transpose X
+        before feeding it to FastICA. The matrix algebra in the whitening and iteration steps remains the same; only the interpretation of rows vs
+        columns changes.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var dk = false;
+
+      function drawBrain(ctx, cx, cy, r, acts) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, r, r * 0.85, 0, 0, Math.PI * 2);
+        ctx.fillStyle = dk ? "#3a3a38" : "#e8e6df";
+        ctx.fill();
+        ctx.strokeStyle = dk ? "#5F5E5A" : "#B4B2A9";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy - r * 0.1, r * 0.55, r * 0.4, 0, 0, Math.PI * 2);
+        ctx.fillStyle = dk ? "#444441" : "#d3d1c7";
+        ctx.fill();
+        if (acts) {
+          for (var i = 0; i < acts.length; i++) {
+            var a = acts[i];
+            ctx.globalAlpha = a[4] || 0.7;
+            ctx.fillStyle = a[3];
+            ctx.beginPath();
+            ctx.arc(cx + a[0] * r, cy + a[1] * r, a[2] * r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+
+      function drawMat(ctx, x, y, w, h, rows, cols, fillFn) {
+        ctx.fillStyle = dk ? "rgba(58,58,56,0.3)" : "rgba(232,230,223,0.5)";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = dk ? "#5F5E5A" : "#B4B2A9";
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x, y, w, h);
+        if (fillFn) {
+          var cw = w / cols,
+            rh = h / rows;
+          for (var r = 0; r < rows; r++)
+            for (var c = 0; c < cols; c++) {
+              var col = fillFn(r, c);
+              if (col) {
+                ctx.fillStyle = col;
+                ctx.fillRect(x + c * cw + 0.5, y + r * rh + 0.5, cw - 1, rh - 1);
+              }
+            }
+        }
+      }
+
+      setTimeout(function () {
+        var cv = document.getElementById("stica-cvTop");
+        if (!cv) return;
+        var ctx = cv.getContext("2d");
+        ctx.clearRect(0, 0, 640, 280);
+
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("Spatial ICA: X = (T x m)", 30, 18);
+
+        drawMat(ctx, 20, 28, 80, 120, 8, 14, function (r, c) {
+          var v = Math.sin(r * 0.5 + c * 0.6) * 0.5;
+          var a = Math.abs(v) * 0.4 + 0.1;
+          return v > 0 ? "rgba(226,75,74," + a + ")" : "rgba(55,138,221," + a + ")";
+        });
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.save();
+        ctx.translate(14, 95);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText("T time", 0, 0);
+        ctx.restore();
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("m voxels", 40, 162);
+
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("=", 112, 90);
+
+        drawMat(ctx, 128, 38, 30, 100, 8, 3, function (r, c) {
+          return "rgba(83,74,183," + (Math.abs(Math.cos(r * 0.5 + c * 2)) * 0.4 + 0.15) + ")";
+        });
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("A", 138, 32);
+        ctx.fillText("(T x n)", 125, 152);
+
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.5)";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("\u00d7", 168, 90);
+
+        var scols = ["rgba(226,75,74,", "rgba(55,138,221,", "rgba(29,158,117,"];
+        drawMat(ctx, 182, 55, 100, 35, 3, 14, function (r, c) {
+          var v = Math.sin(r * 2 + c * 0.8) * 0.6;
+          var a = Math.abs(v) * 0.5 + 0.15;
+          return scols[r % 3] + a + ")";
+        });
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("S (n x m)", 210, 50);
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '11px "Poppins",sans-serif';
+        ctx.fillText("rows = indep spatial maps", 185, 108);
+        ctx.fillText("each row is (1 x m)", 198, 120);
+
+        drawBrain(ctx, 200, 210, 34, [
+          [0.0, -0.3, 0.14, "#E24B4A", 0.7],
+          [0.0, 0.2, 0.1, "#E24B4A", 0.6],
+        ]);
+        drawBrain(ctx, 265, 210, 34, [[0.0, 0.28, 0.16, "#378ADD", 0.7]]);
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.4)";
+        ctx.font = '11px "Poppins",sans-serif';
+        ctx.fillText("reshape each row \u2192 brain map", 170, 260);
+
+        ctx.strokeStyle = dk ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)";
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(330, 10);
+        ctx.lineTo(330, 270);
+        ctx.stroke();
+
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("Temporal ICA: X = (m x T)", 370, 18);
+
+        drawMat(ctx, 360, 28, 120, 110, 14, 8, function (r, c) {
+          var v = Math.sin(r * 0.6 + c * 0.5) * 0.5;
+          var a = Math.abs(v) * 0.4 + 0.1;
+          return v > 0 ? "rgba(226,75,74," + a + ")" : "rgba(55,138,221," + a + ")";
+        });
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.save();
+        ctx.translate(354, 90);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText("m voxels", 0, 0);
+        ctx.restore();
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("T time", 400, 152);
+
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.55)";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("=", 492, 85);
+
+        drawMat(ctx, 508, 38, 35, 100, 14, 3, function (r, c) {
+          return "rgba(29,158,117," + (Math.abs(Math.cos(r * 0.4 + c * 2)) * 0.4 + 0.15) + ")";
+        });
+        ctx.fillStyle = "#0F6E56";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("A", 520, 32);
+        ctx.fillText("(m x n)", 505, 152);
+
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.5)";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("\u00d7", 553, 85);
+
+        var tcols = ["rgba(226,75,74,", "rgba(83,74,183,", "rgba(186,117,23,"];
+        drawMat(ctx, 568, 55, 60, 35, 3, 8, function (r, c) {
+          var v = Math.sin(r * 2.5 + c * 1.2) * 0.6;
+          var a = Math.abs(v) * 0.5 + 0.15;
+          return tcols[r % 3] + a + ")";
+        });
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '500 14px "Poppins",sans-serif';
+        ctx.fillText("S (n x T)", 575, 50);
+        ctx.fillStyle = "#534AB7";
+        ctx.font = '11px "Poppins",sans-serif';
+        ctx.fillText("rows = indep", 568, 106);
+        ctx.fillText("time courses", 568, 118);
+        ctx.fillText("each row is (1 x T)", 564, 130);
+
+        var tcs = [
+          [0.5, 0.7, 0.4, 0.8, 0.3, 0.7, 0.9, 0.5, 0.3, 0.6, 0.8, 0.4],
+          [0.2, 0.8, 0.2, 0.9, 0.3, 0.7, 0.2, 0.8, 0.3, 0.9, 0.2, 0.7],
+          [0.1, 0.1, 0.9, 0.8, 0.1, 0.1, 0.1, 0.7, 0.1, 0.1, 0.8, 0.1],
+        ];
+        var tcl = ["#E24B4A", "#534AB7", "#BA7517"];
+        tcs.forEach(function (tc, ri) {
+          var bx = 380 + ri * 85,
+            by = 195;
+          ctx.strokeStyle = tcl[ri];
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (var t = 0; t < tc.length; t++) {
+            var px = bx + t * 6,
+              py = by + 25 - tc[t] * 22;
+            if (t === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+        ctx.fillStyle = dk ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.4)";
+        ctx.font = '16px "Poppins",sans-serif';
+        ctx.fillText("independent temporal signatures", 385, 260);
+      }, 50);
+    })();
+  </script>
+</div>
