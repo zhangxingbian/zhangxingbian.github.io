@@ -16,6 +16,13 @@ ninja.data = [{
           handler: () => {
             window.location.href = "/projects/";
           },
+        },{id: "nav-blog",
+          title: "Blog",
+          description: "",
+          section: "Navigation",
+          handler: () => {
+            window.location.href = "/blog/";
+          },
         },{id: "nav-repositories",
           title: "Repositories",
           description: "GitHub profile and featured repositories.",
@@ -30,7 +37,18 @@ ninja.data = [{
           handler: () => {
             window.location.href = "/photography/";
           },
-        },{id: "news-paper-published-in-medical-physics-validation-of-a-robust-method-for-quantification-of-three-dimensional-growth-of-the-thoracic-aorta-using-deformable-image-registration",
+        },{id: "post-understanding-independent-component-analysis",
+        
+          title: "Understanding Independent Component Analysis",
+        
+        description: "An interactive guide to ICA — from the cocktail party problem to FastICA, with live visualizations you can manipulate.",
+        section: "Posts",
+        handler: () => {
+          
+            window.location.href = "/blog/2026/understanding-ica/";
+          
+        },
+      },{id: "news-paper-published-in-medical-physics-validation-of-a-robust-method-for-quantification-of-three-dimensional-growth-of-the-thoracic-aorta-using-deformable-image-registration",
           title: 'Paper published in Medical Physics: “Validation of a Robust Method for Quantification of...',
           description: "",
           section: "News",},{id: "news-paper-accepted-at-cvpr-2022-learning-pixel-trajectories-with-multiscale-contrastive-random-walks",

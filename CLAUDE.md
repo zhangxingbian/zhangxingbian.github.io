@@ -102,6 +102,10 @@ Detailed coding guidelines exist per file type in `.github/instructions/`:
 | Liquid (`_includes/`, `_layouts/`) | `.github/instructions/liquid-templates.instructions.md`    |
 | JavaScript (`_scripts/`)           | `.github/instructions/javascript-scripts.instructions.md`  |
 
+## Playwright Screenshot Cleanup
+
+When using Playwright to take screenshots for debugging or visual verification, always delete the generated screenshot files from the project directory afterward. Run `rm -f <filename>.png` for each screenshot you created. Do not leave temporary screenshots in the repo.
+
 ## Common Pitfalls
 
 - **YAML special characters**: Quote values containing `:`, `&`, `#` — e.g., `title: "My: Cool Site"`.
